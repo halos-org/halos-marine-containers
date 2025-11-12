@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  grafana:
+    image: grafana/grafana:11.3.2
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - /opt/container-data/grafana/data:/var/lib/grafana
+      - /opt/container-data/grafana/config:/etc/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-halos}
+      # Install plugins manually through the UI after first startup to avoid
+      # network dependency on every container start
+      # - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-worldmap-panel
+      - GF_SERVER_ROOT_URL=http://localhost:${GRAFANA_PORT:-3001}/
+    user: "472:472"
+    networks:
+      - grafana-net
+
+networks:
+  grafana-net:
+    driver: bridge

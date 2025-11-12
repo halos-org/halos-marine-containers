@@ -1,0 +1,33 @@
+version: "1.0"
+
+groups:
+  - id: network
+    label: Network Settings
+    description: Port configuration
+    fields:
+      - id: GRAFANA_PORT
+        label: HTTP Port
+        type: integer
+        default: 3001
+        min: 1024
+        max: 65535
+        required: true
+        description: Port for Grafana web interface
+
+  - id: admin
+    label: Administrator Account
+    description: Initial admin user credentials
+    fields:
+      - id: GRAFANA_ADMIN_USER
+        label: Admin Username
+        type: string
+        default: admin
+        required: true
+        description: Username for the administrator account
+
+      - id: GRAFANA_ADMIN_PASSWORD
+        label: Admin Password
+        type: password
+        default: halos
+        required: true
+        description: Password for the administrator account (change immediately after first login)

@@ -1,0 +1,51 @@
+version: "1.0"
+
+groups:
+  - id: network
+    label: Network Settings
+    description: Port configuration
+    fields:
+      - id: INFLUXDB_HTTP_PORT
+        label: HTTP Port
+        type: integer
+        default: 8086
+        min: 1024
+        max: 65535
+        required: true
+        description: Port for web interface and API
+
+  - id: database
+    label: Database Settings
+    description: Initial database configuration
+    fields:
+      - id: INFLUXDB_DB
+        label: Default Bucket Name
+        type: string
+        default: marine
+        required: true
+        description: Name of the default data bucket
+
+  - id: admin
+    label: Administrator Account
+    description: Initial admin user credentials
+    fields:
+      - id: INFLUXDB_ADMIN_USER
+        label: Admin Username
+        type: string
+        default: admin
+        required: true
+        description: Username for the administrator account
+
+      - id: INFLUXDB_ADMIN_PASSWORD
+        label: Admin Password
+        type: password
+        default: halos
+        required: true
+        description: Password for the administrator account (change immediately after first login)
+
+      - id: INFLUXDB_ADMIN_TOKEN
+        label: Admin API Token
+        type: password
+        default: halos-default-token-change-in-production
+        required: true
+        description: Admin token for API access (change immediately after first login)

@@ -420,13 +420,29 @@ The `.github/workflows/build.yml` workflow:
 
 ### Package Versioning
 
-**Store Package Version**: Semantic versioning
-- Example: `marine-container-store_1.0.0-1_all.deb`
-- Version: `1.0.0` (upstream) + `-1` (Debian revision)
+**Versioning Flexibility**: Any versioning scheme compatible with Debian package versioning
+- No requirement for semantic versioning
+- Version format must be comparable using `dpkg --compare-versions`
+- Format: `<upstream-version>-<debian-revision>`
 
-**App Package Version**: Upstream version + Debian revision
+**Common Versioning Schemes**:
+
+*Semantic Versioning (semver)*:
 - Example: `signalk-server-container_2.8.0-1_arm64.deb`
-- Version: `2.8.0` (upstream Signal K version) + `-1` (Debian revision)
+- Version: `2.8.0` (upstream) + `-1` (Debian revision)
+
+*Date-based Versioning*:
+- Example: `avnav-container_20250113-1_arm64.deb`
+- Version: `20250113` (2025-01-13) + `-1` (Debian revision)
+- Sorts chronologically by default
+
+*Calendar Versioning (CalVer)*:
+- Example: `myapp-container_2025.01.13-1_arm64.deb`
+- Version: `2025.01.13` (year.month.day) + `-1` (Debian revision)
+
+*Store Package Versioning*:
+- Recommend semver for store packages: `marine-container-store_1.0.0-1_all.deb`
+- Store definitions change less frequently and benefit from semantic versions
 
 **Debian Revision**: Increment when:
 - Packaging changes (new dependencies, path changes)

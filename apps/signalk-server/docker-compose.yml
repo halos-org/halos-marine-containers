@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  signalk:
+    image: signalk/signalk-server:2.17.2
+    container_name: signalk-server
+    restart: unless-stopped
+    ports:
+      - "${SIGNALK_PORT:-3000}:3000"
+    volumes:
+      - /opt/container-data/signalk-server/config:/home/node/.signalk
+    environment:
+      - ADMINUSER=${SIGNALK_ADMIN_USER:-admin}
+    networks:
+      - signalk-net
+    # Device mappings are hardware-dependent. Uncomment and customize as needed for your system.
+    # Most systems won't have both devices available at the same time.
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    #   - /dev/ttyACM0:/dev/ttyACM0
+    # Optional: uncomment for host networking (better device discovery)
+    # network_mode: host
+
+networks:
+  signalk-net:
+    driver: bridge

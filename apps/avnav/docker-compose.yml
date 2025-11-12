@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  avnav:
+    image: wellenvogel/avnav:20240520
+    container_name: avnav
+    restart: unless-stopped
+    ports:
+      - "${AVNAV_HTTP_PORT:-8082}:8080"
+    volumes:
+      - /opt/container-data/avnav/data:/home/avnav/data
+      - /opt/container-data/avnav/charts:/home/avnav/data/charts
+    environment:
+      - TZ=UTC
+    # Device mappings are hardware-dependent. Uncomment and customize as needed for your system.
+    # Most systems won't have both devices available at the same time.
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    #   - /dev/ttyACM0:/dev/ttyACM0
+    # SYS_ADMIN capability required for USB device access and local network discovery
+    privileged: false
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      - avnav-net
+
+networks:
+  avnav-net:
+    driver: bridge

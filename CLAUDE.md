@@ -8,8 +8,6 @@ Marine container store definition and curated marine application definitions.
 
 ## Git Workflow Policy
 
-**IMPORTANT:** Always ask before pushing, creating/pushing tags, or running destructive git operations that affect remote repositories. Local commits and branch operations are fine.
-
 **Branch Workflow:** Never push to main directly - always use feature branches and PRs.
 
 ## What This Repository Contains

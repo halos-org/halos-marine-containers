@@ -1,0 +1,41 @@
+name: Grafana
+package_name: grafana-container
+version: 11.3.2-1
+upstream_version: 11.3.2
+description: Data visualization and monitoring platform
+long_description: |
+  Grafana is an open-source platform for monitoring and observability. Create
+  beautiful dashboards to visualize marine data from InfluxDB, Signal K, and
+  other data sources.
+
+  Features:
+  - Rich visualization options (graphs, gauges, maps)
+  - Multiple data source support
+  - Alert notifications
+  - Dashboard sharing and templating
+  - Plugin ecosystem
+
+homepage: https://grafana.com/
+maintainer: Hat Labs <support@hatlabs.fi>
+license: AGPL-3.0
+tags:
+  - role::container-app
+  - field::marine
+  - interface::web
+  - use::monitoring
+  - works-with::logfile
+debian_section: web
+architecture: all
+depends:
+  - docker-ce (>= 20.10) | docker.io (>= 20.10)
+recommends:
+  - influxdb-container
+web_ui:
+  enabled: true
+  path: /
+  port: 3001
+  protocol: http
+default_config:
+  GRAFANA_PORT: "3001"
+  GRAFANA_ADMIN_USER: admin
+  GRAFANA_ADMIN_PASSWORD: halos

@@ -1,0 +1,26 @@
+version: "1.0"
+
+groups:
+  - id: network
+    label: Network Settings
+    description: Port and network configuration
+    fields:
+      - id: SIGNALK_PORT
+        label: HTTP Port
+        type: integer
+        default: 3000
+        min: 1024
+        max: 65535
+        required: true
+        description: Port for web interface and API
+
+  - id: admin
+    label: Administration
+    description: Administrator account settings
+    fields:
+      - id: SIGNALK_ADMIN_USER
+        label: Admin Username
+        type: string
+        default: admin
+        required: true
+        description: Username for the initial administrator account

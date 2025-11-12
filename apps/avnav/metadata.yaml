@@ -1,0 +1,39 @@
+name: AvNav
+package_name: avnav-container
+version: 20240520-1
+upstream_version: "20240520"
+description: Touch-optimized chart plotter for sailing and motor yachts
+long_description: |
+  AvNav is a navigation software specifically designed for touch operation on
+  tablets and smartphones. It combines a chart plotter with routing
+  capabilities and integration with marine electronics.
+
+  Features:
+  - Touch-optimized web interface
+  - Multiple chart format support (mbtiles, gemf, xml)
+  - Route planning and navigation
+  - AIS integration
+  - Anchor watch functionality
+  - NMEA data display and logging
+  - Plugin system for extensions
+
+homepage: https://www.wellenvogel.net/software/avnav/docs/beschreibung.html
+maintainer: Hat Labs <support@hatlabs.fi>
+license: GPL-3.0
+tags:
+  - role::container-app
+  - field::marine
+  - interface::web
+  - use::routing
+  - works-with::maps
+debian_section: net
+architecture: all
+depends:
+  - docker-ce (>= 20.10) | docker.io (>= 20.10)
+web_ui:
+  enabled: true
+  path: /
+  port: 8082
+  protocol: http
+default_config:
+  AVNAV_HTTP_PORT: "8082"

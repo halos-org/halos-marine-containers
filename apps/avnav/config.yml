@@ -1,0 +1,15 @@
+version: "1.0"
+
+groups:
+  - id: network
+    label: Network Settings
+    description: Port configuration
+    fields:
+      - id: AVNAV_HTTP_PORT
+        label: HTTP Port
+        type: integer
+        default: 8082
+        min: 1024
+        max: 65535
+        required: true
+        description: Port for AvNav web interface

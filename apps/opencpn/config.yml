@@ -1,0 +1,26 @@
+version: "1.0"
+
+groups:
+  - id: network
+    label: Network Settings
+    description: VNC web access configuration
+    fields:
+      - id: OPENCPN_VNC_PORT
+        label: VNC Web Port
+        type: integer
+        default: 8080
+        min: 1024
+        max: 65535
+        required: true
+        description: Port for accessing OpenCPN via web browser
+
+  - id: security
+    label: Security
+    description: VNC access credentials
+    fields:
+      - id: OPENCPN_VNC_PASSWORD
+        label: VNC Password
+        type: password
+        default: halos
+        required: true
+        description: Password to access OpenCPN via VNC
