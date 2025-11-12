@@ -1,0 +1,40 @@
+name: InfluxDB
+package_name: influxdb-container
+version: 2.7.10-1
+upstream_version: 2.7.10
+description: Time-series database for marine data logging
+long_description: |
+  InfluxDB is a high-performance time-series database designed for handling
+  large volumes of timestamped data. Perfect for marine applications to store
+  and analyze historical data from Signal K, sensors, and other sources.
+
+  Features:
+  - High-performance time-series data storage
+  - Built-in web UI for data exploration
+  - Powerful query language (Flux)
+  - Retention policies for automatic data management
+  - Integration with Grafana for visualization
+
+homepage: https://www.influxdata.com/
+maintainer: Hat Labs <support@hatlabs.fi>
+license: MIT
+tags:
+  - role::container-app
+  - field::marine
+  - interface::web
+  - use::organizing
+  - works-with::logfile
+debian_section: net
+architecture: all
+depends:
+  - docker-ce (>= 20.10) | docker.io (>= 20.10)
+web_ui:
+  enabled: true
+  path: /
+  port: 8086
+  protocol: http
+default_config:
+  INFLUXDB_HTTP_PORT: "8086"
+  INFLUXDB_ADMIN_USER: admin
+  INFLUXDB_ADMIN_PASSWORD: changeme
+  INFLUXDB_DB: marine

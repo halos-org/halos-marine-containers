@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  signalk:
+    image: signalk/signalk-server:latest
+    container_name: signalk-server
+    restart: unless-stopped
+    ports:
+      - "${SIGNALK_PORT:-3000}:3000"
+    volumes:
+      - signalk-config:/home/node/.signalk
+    environment:
+      - ADMINUSER=${SIGNALK_ADMIN_USER:-admin}
+    networks:
+      - signalk-net
+    # Allow access to host network for NMEA device discovery
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyACM0:/dev/ttyACM0
+    # Optional: uncomment for host networking (better device discovery)
+    # network_mode: host
+
+volumes:
+  signalk-config:
+    driver: local
+
+networks:
+  signalk-net:
+    driver: bridge

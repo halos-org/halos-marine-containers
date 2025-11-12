@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  opencpn:
+    image: jlesage/opencpn:latest
+    container_name: opencpn
+    restart: unless-stopped
+    ports:
+      - "${OPENCPN_VNC_PORT:-8080}:5800"
+    volumes:
+      - opencpn-config:/config
+      - opencpn-charts:/charts:ro
+    environment:
+      - VNC_PASSWORD=${OPENCPN_VNC_PASSWORD:-opencpn}
+      - DISPLAY_WIDTH=1280
+      - DISPLAY_HEIGHT=768
+      - TZ=UTC
+    # Allow access to GPS devices
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyACM0:/dev/ttyACM0
+    networks:
+      - opencpn-net
+
+volumes:
+  opencpn-config:
+    driver: local
+  opencpn-charts:
+    driver: local
+
+networks:
+  opencpn-net:
+    driver: bridge

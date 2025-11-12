@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - grafana-config:/etc/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-worldmap-panel
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:${GRAFANA_PORT:-3001}/
+    user: "472:472"
+    networks:
+      - grafana-net
+
+volumes:
+  grafana-data:
+    driver: local
+  grafana-config:
+    driver: local
+
+networks:
+  grafana-net:
+    driver: bridge
