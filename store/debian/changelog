@@ -1,0 +1,8 @@
+marine-container-store (0.1.0-1) stable; urgency=medium
+
+  * Initial release
+  * Store definition for marine and sailing applications
+  * Filtering configuration for cockpit-apt
+  * Branding assets (icon and banner)
+
+ -- Hat Labs <info@hatlabs.fi>  Thu, 14 Nov 2025 12:00:00 +0200

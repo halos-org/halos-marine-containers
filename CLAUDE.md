@@ -10,6 +10,8 @@ Marine container store definition and curated marine application definitions.
 
 **Branch Workflow:** Never push to main directly - always use feature branches and PRs.
 
+**Link issues and PRs:** Always link related GitHub issues in PR descriptions with `Closes #<issue-number>`.
+
 ## What This Repository Contains
 
 **Two things in one repository**:

@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	# Install store configuration
+	install -D -m 644 marine.yaml debian/marine-container-store/etc/container-apps/stores/marine.yaml
+
+	# Install branding assets
+	install -D -m 644 icon.svg debian/marine-container-store/usr/share/container-stores/marine/icon.svg
+
+	# Install banner if it exists
+	[ -f banner.png ] && install -D -m 644 banner.png debian/marine-container-store/usr/share/container-stores/marine/banner.png || true

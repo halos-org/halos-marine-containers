@@ -1,0 +1,20 @@
+Source: marine-container-store
+Section: admin
+Priority: optional
+Maintainer: Hat Labs <info@hatlabs.fi>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.0
+Homepage: https://github.com/hatlabs/halos-marine-containers
+
+Package: marine-container-store
+Architecture: all
+Description: Marine container application store definition for Cockpit APT
+ This package provides the store definition and branding for the Marine
+ container application store, designed to work with cockpit-apt.
+ .
+ When installed alongside cockpit-apt, it enables a curated view of marine
+ and sailing applications including navigation software, chart plotters,
+ weather routing, data logging, and monitoring dashboards.
+ .
+ The store filters packages from apt.hatlabs.fi and other repositories
+ based on Debian tags (debtags), sections, and package metadata.
