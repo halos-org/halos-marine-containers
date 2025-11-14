@@ -22,10 +22,13 @@ license: GPL-2.0
 tags:
   - role::container-app
   - field::marine
+  - field::navigation
+  - field::geography
+  - scope::application
   - interface::web
   - use::routing
   - works-with::maps
-debian_section: net
+debian_section: navigation
 architecture: all
 depends:
   - docker-ce (>= 20.10) | docker.io (>= 20.10)

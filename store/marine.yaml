@@ -1,0 +1,18 @@
+id: marine
+name: Marine Navigation & Monitoring
+description: |
+  Applications for marine navigation, monitoring, and boat systems.
+  Includes chart plotters, data loggers, and marine-specific integrations.
+
+icon: /usr/share/container-stores/marine/icon.svg
+
+filters:
+  # Packages with marine tags (from any repo)
+  include_tags:
+    - field::marine
+
+section_metadata:
+  navigation:
+    label: Navigation
+    icon: anchor
+    description: Navigation and chart plotting applications
