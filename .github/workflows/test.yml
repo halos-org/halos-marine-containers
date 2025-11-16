@@ -1,0 +1,24 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run test suite
+        run: |
+          docker run --rm -v $(pwd):/workspace -w /workspace python:3.11-slim \
+            bash -c "pip install -q pytest pyyaml && python -m pytest tests/ -v"
+
+      - name: Validate YAML syntax
+        run: |
+          docker run --rm -v $(pwd):/workspace -w /workspace python:3.11-slim \
+            bash -c "pip install -q pyyaml && python -c 'import yaml; yaml.safe_load(open(\"store/marine.yaml\"))'"

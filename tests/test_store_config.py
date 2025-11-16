@@ -80,34 +80,44 @@ def test_category_metadata_structure():
 
 def test_category_metadata_matches_app_tags():
     """Test that category metadata IDs match actual category tags used by apps."""
-    store_file = Path(__file__).parent.parent / "store" / "marine.yaml"
+    # Scan actual apps to extract categories
+    apps_dir = Path(__file__).parent.parent / "apps"
+    actual_categories = set()
 
+    for metadata_file in apps_dir.glob("*/metadata.yaml"):
+        with open(metadata_file) as f:
+            app_data = yaml.safe_load(f)
+            for tag in app_data.get("tags", []):
+                if tag.startswith("category::"):
+                    actual_categories.add(tag.replace("category::", ""))
+
+    # Get metadata categories from store config
+    store_file = Path(__file__).parent.parent / "store" / "marine.yaml"
     with open(store_file) as f:
         data = yaml.safe_load(f)
 
     if "category_metadata" not in data:
         pytest.skip("No category_metadata defined")
 
-    # Get all category IDs from metadata
     metadata_ids = {entry["id"] for entry in data["category_metadata"]}
 
-    # Expected categories based on tags added to marine apps
-    # These should match the category:: tags in apps/*/metadata.yaml
-    expected_categories = {
-        "navigation",
-        "chartplotters",
-        "monitoring",
-        "communication",
-        "visualization",
-    }
+    # All actual categories should have metadata
+    missing_metadata = actual_categories - metadata_ids
+    assert not missing_metadata, \
+        f"Categories used by apps but missing metadata: {missing_metadata}\n" \
+        f"Actual categories from apps: {actual_categories}\n" \
+        f"Metadata defined: {metadata_ids}"
 
-    # All expected categories should have metadata
-    assert expected_categories == metadata_ids, \
-        f"Category metadata IDs don't match expected categories.\n" \
-        f"Expected: {expected_categories}\n" \
-        f"Got: {metadata_ids}\n" \
-        f"Missing: {expected_categories - metadata_ids}\n" \
-        f"Extra: {metadata_ids - expected_categories}"
+    # Optional: check for unused metadata (not a hard failure)
+    unused_metadata = metadata_ids - actual_categories
+    if unused_metadata:
+        # This is allowed (future categories), just ensure we document it
+        # We don't fail the test, but we make it visible in test output
+        import warnings
+        warnings.warn(
+            f"Category metadata defined but not used by any app: {unused_metadata}",
+            UserWarning
+        )
 
 
 def test_no_section_metadata():
