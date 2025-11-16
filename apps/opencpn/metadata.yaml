@@ -28,7 +28,7 @@ tags:
   - interface::web
   - use::routing
   - works-with::maps
-debian_section: navigation
+debian_section: graphics
 architecture: all
 depends:
   - docker-ce (>= 20.10) | docker.io (>= 20.10)
