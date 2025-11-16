@@ -11,8 +11,28 @@ filters:
   include_tags:
     - field::marine
 
-section_metadata:
-  navigation:
-    label: Navigation
-    icon: anchor
-    description: Navigation and chart plotting applications
+category_metadata:
+  - id: navigation
+    label: Navigation & Charts
+    icon: MapIcon
+    description: Chart plotters and navigation tools for marine use
+
+  - id: chartplotters
+    label: Chart Plotters
+    icon: MapMarkerIcon
+    description: Specialized chart plotting applications
+
+  - id: monitoring
+    label: Data & Monitoring
+    icon: ChartLineIcon
+    description: Data logging, telemetry, and system monitoring
+
+  - id: communication
+    label: Communication
+    icon: ConnectedIcon
+    description: NMEA gateways, AIS receivers, and marine communication tools
+
+  - id: visualization
+    label: Visualization
+    icon: ChartAreaIcon
+    description: Dashboards and data visualization tools
