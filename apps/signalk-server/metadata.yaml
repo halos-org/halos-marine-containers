@@ -21,6 +21,8 @@ license: Apache-2.0
 tags:
   - role::container-app
   - field::marine
+  - category::communication
+  - category::monitoring
   - interface::web
   - use::routing
   - network::server
