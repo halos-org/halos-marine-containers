@@ -490,7 +490,8 @@ Uses Debian's standard debtags vocabulary for rich categorization:
 - `works-with::*` - Data types handled
 
 **Custom HaLOS Facets**:
-- `category::navigation` - Chart plotters and navigation tools
+- `category::navigation` - Navigation tools (broad category)
+- `category::chartplotters` - Chart plotting applications
 - `category::monitoring` - Data logging and system monitoring
 - `category::communication` - NMEA gateways, AIS, radio integration
 - `category::visualization` - Dashboards and data visualization

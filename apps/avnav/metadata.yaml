@@ -26,6 +26,7 @@ tags:
   - field::navigation
   - field::geography
   - category::navigation
+  - category::chartplotters
   - scope::application
   - interface::web
   - use::routing
