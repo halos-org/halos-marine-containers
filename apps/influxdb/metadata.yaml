@@ -21,6 +21,7 @@ license: MIT
 tags:
   - role::container-app
   - field::marine
+  - category::monitoring
   - interface::web
   - use::organizing
   - works-with::logfile

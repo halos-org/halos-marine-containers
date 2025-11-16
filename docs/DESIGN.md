@@ -489,6 +489,15 @@ Uses Debian's standard debtags vocabulary for rich categorization:
 - `network::server` - Network server role
 - `works-with::*` - Data types handled
 
+**Custom HaLOS Facets**:
+- `category::navigation` - Navigation tools (broad category)
+- `category::chartplotters` - Chart plotting applications
+- `category::monitoring` - Data logging and system monitoring
+- `category::communication` - NMEA gateways, AIS, radio integration
+- `category::visualization` - Dashboards and data visualization
+
+The `category::` facet is used for store-specific categorization and UI organization. Packages can have multiple category tags to appear in multiple categories within a store.
+
 **Example Tags**:
 ```
 Tag: role::container-app, field::marine, interface::web, use::routing, network::server

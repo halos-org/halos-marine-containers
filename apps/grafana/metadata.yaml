@@ -21,6 +21,8 @@ license: AGPL-3.0
 tags:
   - role::container-app
   - field::marine
+  - category::visualization
+  - category::monitoring
   - interface::web
   - use::monitoring
   - works-with::logfile
