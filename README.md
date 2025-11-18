@@ -44,7 +44,7 @@ cd halos-distro
 ```
 
 See `halos-distro/docs/` for development workflows:
-- `HUMAN_DEVELOPMENT_GUIDANCE.md` - Quick start guide
+- `LIFE_WITH_CLAUDE.md` - Quick start guide
 - `IMPLEMENTATION_CHECKLIST.md` - Development checklist
 - `DEVELOPMENT_WORKFLOW.md` - Detailed workflows
 
