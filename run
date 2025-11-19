@@ -50,6 +50,114 @@ function test:watch {
 }
 
 ################################################################################
+# Version Management Commands
+
+function bump-version {
+  #@ Bump release bundle version (VERSION file)
+  #@ Category: Version
+  local bump_type="$1"
+
+  if [[ ! "$bump_type" =~ ^(patch|minor|major)$ ]]; then
+    echo "Usage: ./run bump-version [patch|minor|major]"
+    echo ""
+    echo "Bumps the release bundle version in VERSION file."
+    echo "Use this when any package update warrants a new release."
+    return 1
+  fi
+
+  if ! command -v bumpversion &> /dev/null; then
+    echo "❌ bumpversion not found. Install with:"
+    echo "   pip install bumpversion"
+    return 1
+  fi
+
+  echo "📦 Bumping release bundle version ($bump_type)..."
+  bumpversion "$bump_type"
+  local new_version=$(cat VERSION)
+  echo "✅ Release bundle version bumped to $new_version"
+}
+
+function bump-store {
+  #@ Bump store package version (store/debian/changelog)
+  #@ Category: Version
+  local bump_type="$1"
+
+  if [[ ! "$bump_type" =~ ^(patch|minor|major)$ ]]; then
+    echo "Usage: ./run bump-store [patch|minor|major]"
+    echo ""
+    echo "Bumps the store package version in store/debian/changelog."
+    echo "Use this when the store definition changes."
+    return 1
+  fi
+
+  # Read current version from changelog (first line, extract version between parentheses)
+  local current_version=$(head -1 store/debian/changelog | sed 's/.*(\([^)]*\)).*/\1/' | cut -d- -f1)
+
+  # Calculate new version using semver logic
+  IFS='.' read -r major minor patch <<< "$current_version"
+  case "$bump_type" in
+    major)
+      major=$((major + 1))
+      minor=0
+      patch=0
+      ;;
+    minor)
+      minor=$((minor + 1))
+      patch=0
+      ;;
+    patch)
+      patch=$((patch + 1))
+      ;;
+  esac
+  local new_version="${major}.${minor}.${patch}"
+
+  echo "📦 Bumping store package version: $current_version → $new_version..."
+
+  # Create new changelog entry (prepend to file)
+  local temp_file=$(mktemp)
+  cat > "$temp_file" <<CHANGELOG
+marine-container-store (${new_version}-1) stable; urgency=medium
+
+  * Version bump to ${new_version}
+
+ -- Hat Labs <info@hatlabs.fi>  $(date '+%a, %d %b %Y %H:%M:%S %z')
+
+CHANGELOG
+  cat store/debian/changelog >> "$temp_file"
+  mv "$temp_file" store/debian/changelog
+
+  echo "✅ Store package version bumped to ${new_version}-1"
+  echo ""
+  echo "⚠️  Don't forget to edit store/debian/changelog to add details about what changed!"
+}
+
+function list-versions {
+  #@ List all current versions
+  #@ Category: Version
+  echo "Version Information"
+  echo "==================="
+  echo ""
+
+  echo "📦 Release Bundle (VERSION):"
+  cat VERSION
+  echo ""
+
+  echo "📦 Store Package (store/debian/changelog):"
+  local store_version=$(head -1 store/debian/changelog | sed 's/.*(\([^)]*\)).*/\1/')
+  echo "$store_version"
+  echo ""
+
+  echo "📦 Marine Apps:"
+  for app in apps/*/; do
+    local app_name=$(basename "$app")
+    if [ -f "$app/metadata.yaml" ]; then
+      local version=$(grep "^version:" "$app/metadata.yaml" | cut -d: -f2 | xargs)
+      printf "  %-20s %s\n" "${app_name}:" "$version"
+    fi
+  done
+}
+
+################################################################################
 # Cleanup Commands
 
 function clean {

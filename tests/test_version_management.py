@@ -94,7 +94,7 @@ class TestAppVersionParsing:
             assert data["version"], f"App {app_name} has empty version"
 
     def test_app_versions_are_valid_format(self):
-        """Test that app versions follow expected format (semver-debian)."""
+        """Test that app versions follow expected format (semver-debian or date-based)."""
         import yaml
         import re
 
@@ -107,11 +107,16 @@ class TestAppVersionParsing:
             app_name = metadata_file.parent.name
             version = data["version"]
 
-            # Expected format: X.Y.Z-N (semver with Debian revision)
-            # or just X.Y.Z
-            pattern = r'^\d+\.\d+\.\d+(-\d+)?$'
-            assert re.match(pattern, version), \
-                f"App {app_name} has invalid version format: {version}"
+            # Expected formats:
+            # - Semver: X.Y.Z or X.Y.Z-N (e.g., 2.17.2-1)
+            # - Date-based: YYYYMMDD-N (e.g., 20240520-1)
+            semver_pattern = r'^\d+\.\d+\.\d+(-\d+)?$'
+            date_pattern = r'^\d{8}-\d+$'
+
+            is_valid = re.match(semver_pattern, version) or re.match(date_pattern, version)
+            assert is_valid, \
+                f"App {app_name} has invalid version format: {version} " \
+                f"(expected semver like '2.17.2-1' or date-based like '20240520-1')"
 
 
 class TestVersionBumpCalculations:
@@ -244,24 +249,23 @@ class TestBumpversionConfig:
             ".bumpversion.cfg should have 'tag = False'"
 
 
-class TestGitHubScripts:
-    """Tests for GitHub workflow scripts."""
+class TestGitHubWorkflows:
+    """Tests for GitHub workflow configuration."""
 
-    def test_read_version_script_exists(self):
-        """Test that read-version.sh exists."""
-        script = Path(__file__).parent.parent / ".github" / "scripts" / "read-version.sh"
-        assert script.exists(), ".github/scripts/read-version.sh must exist"
+    def test_auto_release_workflow_exists(self):
+        """Test that auto-release workflow exists."""
+        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "auto-release.yml"
+        assert workflow.exists(), ".github/workflows/auto-release.yml must exist"
 
-    def test_read_version_script_uses_version_file(self):
-        """Test that read-version.sh reads from VERSION file, not changelog."""
-        script = Path(__file__).parent.parent / ".github" / "scripts" / "read-version.sh"
-        content = script.read_text()
+    def test_auto_release_workflow_reads_version_file(self):
+        """Test that auto-release workflow reads from VERSION file."""
+        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "auto-release.yml"
+        content = workflow.read_text()
 
-        # Should reference VERSION file
-        assert "VERSION" in content, "read-version.sh should read VERSION file"
+        # Should read VERSION file
+        assert "cat VERSION" in content or "$(cat VERSION)" in content, \
+            "auto-release.yml should read VERSION file"
 
-        # Should NOT use dpkg-parsechangelog for getting version
-        # (may install it for other purposes, but not for reading version)
-        assert "cat VERSION" in content or "$(cat VERSION)" in content or \
-               "VERSION=$(cat" in content or "read" in content.lower(), \
-            "read-version.sh should read VERSION file with cat or similar"
+        # Should create releases
+        assert "gh release create" in content, \
+            "auto-release.yml should create GitHub releases"

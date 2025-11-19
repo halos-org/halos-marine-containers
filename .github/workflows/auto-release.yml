@@ -1,0 +1,83 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'VERSION'
+      - 'apps/**'
+      - 'store/**'
+
+jobs:
+  create-releases:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from VERSION file
+        id: version
+        run: |
+          VERSION=$(cat VERSION)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version from VERSION file: $VERSION"
+
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          PRE_TAG="v${VERSION}-pre.${SHORT_SHA}"
+
+          echo "Creating pre-release: $PRE_TAG"
+
+          # Create pre-release (automatic, pre-release flag set)
+          gh release create "$PRE_TAG" \
+            --title "Pre-release v${VERSION} (${SHORT_SHA})" \
+            --notes "Automatic pre-release from commit ${SHORT_SHA}
+
+          This is a development build. For stable releases, use the manually published releases." \
+            --prerelease \
+            --target main
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+
+          echo "Creating/updating draft release: $TAG"
+
+          # Check if draft release already exists
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null | grep -q true; then
+            echo "Draft release $TAG already exists, updating..."
+            gh release edit "$TAG" \
+              --title "Release v${VERSION}" \
+              --notes "Release v${VERSION}
+
+          ## Changes
+          - See commit history for details
+
+          **Note:** This is a draft release. Review and publish when ready." \
+              --draft
+          else
+            echo "Creating new draft release: $TAG"
+            gh release create "$TAG" \
+              --title "Release v${VERSION}" \
+              --notes "Release v${VERSION}
+
+          ## Changes
+          - See commit history for details
+
+          **Note:** This is a draft release. Review and publish when ready." \
+              --draft \
+              --target main
+          fi
