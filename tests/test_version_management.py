@@ -269,3 +269,32 @@ class TestGitHubWorkflows:
         # Should create releases
         assert "gh release create" in content, \
             "auto-release.yml should create GitHub releases"
+
+    def test_auto_release_workflow_uses_revision_tags(self):
+        """Test that auto-release workflow uses revision-based tag format."""
+        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "auto-release.yml"
+        content = workflow.read_text()
+
+        # Should use calculate-revision.sh script
+        assert "calculate-revision.sh" in content, \
+            "auto-release.yml should use calculate-revision.sh"
+
+        # Should use revision-based tag format with tilde for pre-release
+        assert "+${REVISION}~pre" in content or '+${REVISION}~pre' in content, \
+            "auto-release.yml should use +revision~pre tag format"
+
+        # Should use revision-based tag format for stable
+        assert "+${REVISION}" in content or '+${REVISION}' in content, \
+            "auto-release.yml should use +revision tag format"
+
+    def test_calculate_revision_script_exists(self):
+        """Test that calculate-revision.sh script exists."""
+        script = Path(__file__).parent.parent / ".github" / "scripts" / "calculate-revision.sh"
+        assert script.exists(), ".github/scripts/calculate-revision.sh must exist"
+
+    def test_calculate_revision_script_is_executable(self):
+        """Test that calculate-revision.sh script is executable."""
+        script = Path(__file__).parent.parent / ".github" / "scripts" / "calculate-revision.sh"
+        import stat
+        assert script.stat().st_mode & stat.S_IXUSR, \
+            "calculate-revision.sh should be executable"

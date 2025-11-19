@@ -20,30 +20,46 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read version from VERSION file
+      - name: Read version and calculate revision
         id: version
         run: |
           VERSION=$(cat VERSION)
+          REVISION=$(.github/scripts/calculate-revision.sh "$VERSION")
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version from VERSION file: $VERSION"
+          echo "revision=$REVISION" >> $GITHUB_OUTPUT
+
+          echo "Repository version: $VERSION"
+          echo "Calculated revision: $REVISION"
 
       - name: Create pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          SHORT_SHA="${{ github.sha }}"
-          SHORT_SHA="${SHORT_SHA:0:7}"
-          PRE_TAG="v${VERSION}-pre.${SHORT_SHA}"
+          REVISION="${{ steps.version.outputs.revision }}"
+          PRE_TAG="v${VERSION}+${REVISION}~pre"
 
           echo "Creating pre-release: $PRE_TAG"
 
+          # Delete existing pre-release if it exists (idempotent)
+          if gh release view "$PRE_TAG" >/dev/null 2>&1; then
+            echo "Deleting existing pre-release: $PRE_TAG"
+            gh release delete "$PRE_TAG" --yes
+          fi
+
           # Create pre-release (automatic, pre-release flag set)
           gh release create "$PRE_TAG" \
-            --title "Pre-release v${VERSION} (${SHORT_SHA})" \
-            --notes "Automatic pre-release from commit ${SHORT_SHA}
+            --title "v${VERSION}+${REVISION}~pre (Pre-release)" \
+            --notes "Automatic pre-release for repository version ${VERSION}, revision ${REVISION}
 
-          This is a development build. For stable releases, use the manually published releases." \
+          This is a development build automatically published to the unstable APT channel.
+
+          For stable releases, wait for the draft release to be manually published.
+
+          **Package Versions** (from this snapshot):
+          - Store: See \`store/debian/changelog\`
+          - Apps: See \`apps/*/metadata.yaml\`" \
             --prerelease \
             --target main
 
@@ -52,32 +68,51 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          TAG="v${VERSION}"
+          REVISION="${{ steps.version.outputs.revision }}"
+          TAG="v${VERSION}+${REVISION}"
 
           echo "Creating/updating draft release: $TAG"
 
-          # Check if draft release already exists
-          if gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null | grep -q true; then
-            echo "Draft release $TAG already exists, updating..."
-            gh release edit "$TAG" \
-              --title "Release v${VERSION}" \
-              --notes "Release v${VERSION}
+          # Check if release already exists (draft or published)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Release exists - check if it's a draft
+            IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq '.isDraft')
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "Draft release $TAG already exists, updating..."
+              gh release edit "$TAG" \
+                --title "v${VERSION}+${REVISION}" \
+                --notes "Release for repository version ${VERSION}, revision ${REVISION}
+
+          ## Package Versions
+
+          This release is a snapshot of the repository. Package versions are independent:
+          - **Store package**: See \`store/debian/changelog\`
+          - **App packages**: See \`apps/*/metadata.yaml\`
 
           ## Changes
           - See commit history for details
 
-          **Note:** This is a draft release. Review and publish when ready." \
-              --draft
+          **Note:** This is a draft release. Review and publish when ready to release to stable APT channel." \
+                --draft
+            else
+              echo "Release $TAG already published, skipping..."
+            fi
           else
             echo "Creating new draft release: $TAG"
             gh release create "$TAG" \
-              --title "Release v${VERSION}" \
-              --notes "Release v${VERSION}
+              --title "v${VERSION}+${REVISION}" \
+              --notes "Release for repository version ${VERSION}, revision ${REVISION}
+
+          ## Package Versions
+
+          This release is a snapshot of the repository. Package versions are independent:
+          - **Store package**: See \`store/debian/changelog\`
+          - **App packages**: See \`apps/*/metadata.yaml\`
 
           ## Changes
           - See commit history for details
 
-          **Note:** This is a draft release. Review and publish when ready." \
+          **Note:** This is a draft release. Review and publish when ready to release to stable APT channel." \
               --draft \
               --target main
           fi
