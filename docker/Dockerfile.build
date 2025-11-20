@@ -1,0 +1,33 @@
+FROM debian:trixie
+
+# Install Debian packaging tools and dependencies
+RUN apt-get update && apt-get install -y \
+    debhelper \
+    dh-python \
+    build-essential \
+    fakeroot \
+    devscripts \
+    dpkg-dev \
+    python3-all \
+    python3-pydantic \
+    python3-jinja2 \
+    python3-yaml \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install container-packaging-tools from GitHub releases
+RUN ASSET_URL=$(curl -s https://api.github.com/repos/hatlabs/container-packaging-tools/releases/latest | \
+      jq -r '.assets[] | select(.name | endswith(".deb")) | .browser_download_url') && \
+    if [ -z "$ASSET_URL" ]; then \
+      echo "Error: Could not find .deb asset in latest release" >&2; \
+      exit 1; \
+    fi && \
+    echo "Downloading: $ASSET_URL" && \
+    curl -fL -o /tmp/container-packaging-tools.deb "$ASSET_URL" && \
+    dpkg -i /tmp/container-packaging-tools.deb && \
+    rm /tmp/container-packaging-tools.deb
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
