@@ -11,8 +11,17 @@ runs:
       shell: bash
       run: |
         # Download and install container-packaging-tools from GitHub releases
-        LATEST_RELEASE=$(curl -s https://api.github.com/repos/hatlabs/container-packaging-tools/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
-        curl -L -o container-packaging-tools.deb "https://github.com/hatlabs/container-packaging-tools/releases/latest/download/container-packaging-tools_${LATEST_RELEASE}_all.deb"
+        # Get the actual .deb asset URL from the latest release
+        ASSET_URL=$(curl -s https://api.github.com/repos/hatlabs/container-packaging-tools/releases/latest | \
+          jq -r '.assets[] | select(.name | endswith(".deb")) | .browser_download_url')
+
+        if [ -z "$ASSET_URL" ]; then
+          echo "Error: Could not find .deb asset in latest release"
+          exit 1
+        fi
+
+        echo "Downloading: $ASSET_URL"
+        curl -L -o container-packaging-tools.deb "$ASSET_URL"
         sudo dpkg -i container-packaging-tools.deb || sudo apt-get install -f -y
         rm container-packaging-tools.deb
 
