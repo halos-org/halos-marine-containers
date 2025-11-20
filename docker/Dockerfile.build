@@ -19,7 +19,12 @@ RUN apt-get update && apt-get install -y \
 # Install container-packaging-tools from GitHub releases
 RUN ASSET_URL=$(curl -s https://api.github.com/repos/hatlabs/container-packaging-tools/releases/latest | \
       jq -r '.assets[] | select(.name | endswith(".deb")) | .browser_download_url') && \
-    curl -L -o /tmp/container-packaging-tools.deb "$ASSET_URL" && \
+    if [ -z "$ASSET_URL" ]; then \
+      echo "Error: Could not find .deb asset in latest release" >&2; \
+      exit 1; \
+    fi && \
+    echo "Downloading: $ASSET_URL" && \
+    curl -fL -o /tmp/container-packaging-tools.deb "$ASSET_URL" && \
     dpkg -i /tmp/container-packaging-tools.deb && \
     rm /tmp/container-packaging-tools.deb
 
