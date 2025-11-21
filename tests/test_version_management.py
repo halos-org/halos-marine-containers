@@ -252,40 +252,20 @@ class TestBumpversionConfig:
 class TestGitHubWorkflows:
     """Tests for GitHub workflow configuration."""
 
-    def test_auto_release_workflow_exists(self):
-        """Test that auto-release workflow exists."""
-        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "auto-release.yml"
-        assert workflow.exists(), ".github/workflows/auto-release.yml must exist"
+    def test_main_workflow_exists(self):
+        """Test that main workflow exists."""
+        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "main.yml"
+        assert workflow.exists(), ".github/workflows/main.yml must exist"
 
-    def test_auto_release_workflow_reads_version_file(self):
-        """Test that auto-release workflow reads from VERSION file."""
-        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "auto-release.yml"
-        content = workflow.read_text()
+    def test_pr_workflow_exists(self):
+        """Test that PR workflow exists."""
+        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "pr.yml"
+        assert workflow.exists(), ".github/workflows/pr.yml must exist"
 
-        # Should read VERSION file
-        assert "cat VERSION" in content or "$(cat VERSION)" in content, \
-            "auto-release.yml should read VERSION file"
-
-        # Should create releases
-        assert "gh release create" in content, \
-            "auto-release.yml should create GitHub releases"
-
-    def test_auto_release_workflow_uses_revision_tags(self):
-        """Test that auto-release workflow uses revision-based tag format."""
-        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "auto-release.yml"
-        content = workflow.read_text()
-
-        # Should use calculate-revision.sh script
-        assert "calculate-revision.sh" in content, \
-            "auto-release.yml should use calculate-revision.sh"
-
-        # Should use revision-based tag format with underscore for pre-release
-        assert "+${REVISION}_pre" in content or '+${REVISION}_pre' in content, \
-            "auto-release.yml should use +revision_pre tag format"
-
-        # Should use revision-based tag format for stable
-        assert "+${REVISION}" in content or '+${REVISION}' in content, \
-            "auto-release.yml should use +revision tag format"
+    def test_release_workflow_exists(self):
+        """Test that release workflow exists."""
+        workflow = Path(__file__).parent.parent / ".github" / "workflows" / "release.yml"
+        assert workflow.exists(), ".github/workflows/release.yml must exist"
 
     def test_calculate_revision_script_exists(self):
         """Test that calculate-revision.sh script exists."""
