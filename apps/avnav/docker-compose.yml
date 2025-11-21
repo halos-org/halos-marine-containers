@@ -2,25 +2,21 @@ version: '3.8'
 
 services:
   avnav:
-    image: wellenvogel/avnav:20240520
+    image: xfreex/avnav-stable:20251028
     container_name: avnav
     restart: unless-stopped
     ports:
-      - "${AVNAV_HTTP_PORT:-8082}:8080"
+      - "${AVNAV_HTTP_PORT:-3011}:8080"
+      - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"
+      - "${AVNAV_NMEA_PORT:-34567}:34567"
     volumes:
-      - /opt/container-data/avnav/data:/home/avnav/data
-      - /opt/container-data/avnav/charts:/home/avnav/data/charts
+      - ${CONTAINER_DATA_ROOT:-/var/lib/container-apps}/avnav-container/data:/var/lib/avnav
+      - /dev:/dev
     environment:
-      - TZ=UTC
-    # Device mappings are hardware-dependent. Uncomment and customize as needed for your system.
-    # Most systems won't have both devices available at the same time.
-    # devices:
-    #   - /dev/ttyUSB0:/dev/ttyUSB0
-    #   - /dev/ttyACM0:/dev/ttyACM0
-    # SYS_ADMIN capability required for USB device access and local network discovery
-    privileged: false
-    cap_add:
-      - SYS_ADMIN
+      - UID=1000
+      - GID=1000
+    user: "1000:1000"
+    privileged: true
     networks:
       - avnav-net
 

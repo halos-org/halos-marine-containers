@@ -2,24 +2,19 @@ version: '3.8'
 
 services:
   opencpn:
-    image: jlesage/opencpn:v24.12.1
+    image: ghcr.io/hatlabs/opencpn-docker:5.12.4
     container_name: opencpn
-    restart: unless-stopped
+    restart: no
     ports:
-      - "${OPENCPN_VNC_PORT:-8080}:5800"
+      - "${OPENCPN_PORT:-3002}:3001"
     volumes:
-      - /opt/container-data/opencpn/config:/config
-      - /opt/container-data/opencpn/charts:/charts
+      - ${CONTAINER_DATA_ROOT:-/var/lib/container-apps}/opencpn-container/data/config:/config
     environment:
-      - VNC_PASSWORD=${OPENCPN_VNC_PASSWORD:-halos}
-      - DISPLAY_WIDTH=1280
-      - DISPLAY_HEIGHT=768
-      - TZ=UTC
-    # Device mappings are hardware-dependent. Uncomment and customize as needed for your system.
-    # Most systems won't have both devices available at the same time.
-    # devices:
-    #   - /dev/ttyUSB0:/dev/ttyUSB0
-    #   - /dev/ttyACM0:/dev/ttyACM0
+      - TITLE=OpenCPN
+      - SELKIES_ENABLE_RESIZE=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    shm_size: 1gb
     networks:
       - opencpn-net
 

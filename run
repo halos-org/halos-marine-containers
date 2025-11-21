@@ -28,6 +28,54 @@ readonly PROJECT_ROOT=$(pwd)
 readonly SCRIPT="$PROJECT_ROOT/$(basename "$0")"
 
 ################################################################################
+# Lint Commands
+
+function lint {
+  #@ Validate all docker-compose files
+  #@ Category: Lint
+  echo "🔍 Validating docker-compose files..."
+  local failed=0
+  local checked=0
+
+  for compose_file in apps/*/docker-compose.yml; do
+    if [ -f "$compose_file" ]; then
+      checked=$((checked + 1))
+      local app_name=$(dirname "$compose_file" | xargs basename)
+      if docker compose -f "$compose_file" config > /dev/null 2>&1; then
+        echo "  ✅ $app_name"
+      else
+        echo "  ❌ $app_name"
+        docker compose -f "$compose_file" config 2>&1 | sed 's/^/     /'
+        failed=$((failed + 1))
+      fi
+    fi
+  done
+
+  echo ""
+  if [ $failed -eq 0 ]; then
+    echo "✅ All $checked compose files are valid"
+  else
+    echo "❌ $failed of $checked compose files have errors"
+    return 1
+  fi
+}
+
+function lint:verbose {
+  #@ Validate and show parsed docker-compose files
+  #@ Category: Lint
+  echo "🔍 Validating docker-compose files (verbose)..."
+
+  for compose_file in apps/*/docker-compose.yml; do
+    if [ -f "$compose_file" ]; then
+      local app_name=$(dirname "$compose_file" | xargs basename)
+      echo ""
+      echo "━━━ $app_name ━━━"
+      docker compose -f "$compose_file" config
+    fi
+  done
+}
+
+################################################################################
 # Test Commands
 
 function test {

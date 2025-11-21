@@ -8,7 +8,7 @@ services:
     ports:
       - "${SIGNALK_PORT:-3000}:3000"
     volumes:
-      - /opt/container-data/signalk-server/config:/home/node/.signalk
+      - ${CONTAINER_DATA_ROOT:-/var/lib/container-apps}/signalk-server-container/data:/home/node/.signalk
     environment:
       - ADMINUSER=${SIGNALK_ADMIN_USER:-admin}
     networks:
