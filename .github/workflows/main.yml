@@ -10,5 +10,7 @@ jobs:
     with:
       package-name: marine-container-store
       package-description: 'Marine container store and curated marine application definitions'
+      apt-distro: trixie
+      apt-component: main
     secrets:
       APT_REPO_PAT: ${{ secrets.APT_REPO_PAT }}
