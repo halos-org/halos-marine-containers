@@ -4,12 +4,12 @@ services:
   influxdb:
     image: influxdb:2.7.11
     container_name: influxdb
-    restart: unless-stopped
+    restart: no
     ports:
       - "${INFLUXDB_PORT:-8086}:8086"
     volumes:
-      - ${CONTAINER_DATA_ROOT:-/var/lib/container-apps}/influxdb-container/data/config:/etc/influxdb2
-      - ${CONTAINER_DATA_ROOT:-/var/lib/container-apps}/influxdb-container/data/db:/var/lib/influxdb2
+      - ${CONTAINER_DATA_ROOT}/config:/etc/influxdb2
+      - ${CONTAINER_DATA_ROOT}/db:/var/lib/influxdb2
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_ADMIN_USER:-admin}

@@ -8,7 +8,7 @@ services:
     ports:
       - "${OPENCPN_PORT:-3002}:3001"
     volumes:
-      - ${CONTAINER_DATA_ROOT:-/var/lib/container-apps}/opencpn-container/data/config:/config
+      - ${CONTAINER_DATA_ROOT}/config:/config
     environment:
       - TITLE=OpenCPN
       - SELKIES_ENABLE_RESIZE=true

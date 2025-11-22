@@ -4,13 +4,13 @@ services:
   avnav:
     image: xfreex/avnav-stable:20251028
     container_name: avnav
-    restart: unless-stopped
+    restart: no
     ports:
       - "${AVNAV_HTTP_PORT:-3011}:8080"
       - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"
       - "${AVNAV_NMEA_PORT:-34567}:34567"
     volumes:
-      - ${CONTAINER_DATA_ROOT:-/var/lib/container-apps}/avnav-container/data:/var/lib/avnav
+      - ${CONTAINER_DATA_ROOT}/data:/var/lib/avnav
       - /dev:/dev
     environment:
       - UID=1000
