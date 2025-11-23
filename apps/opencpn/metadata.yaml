@@ -1,6 +1,6 @@
 name: OpenCPN
 package_name: opencpn-container
-version: 5.12.4-2
+version: 5.12.4-3
 upstream_version: 5.12.4
 description: Open source chart plotter and navigation software
 long_description: |
@@ -37,7 +37,7 @@ depends:
 web_ui:
   enabled: true
   path: /
-  port: 3002
-  protocol: http
+  port: 3021
+  protocol: https
 default_config:
-  OPENCPN_PORT: "3002"
+  OPENCPN_PORT: "3021"

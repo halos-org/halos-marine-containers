@@ -5,7 +5,7 @@ services:
     container_name: opencpn
     restart: no
     ports:
-      - "${OPENCPN_PORT:-3002}:3001"
+      - "${OPENCPN_PORT:-3021}:3001"
     volumes:
       - ${CONTAINER_DATA_ROOT}/config:/config
     environment:
