@@ -1,7 +1,7 @@
 name: OpenCPN
 package_name: opencpn-container
-version: 5.10.2-5
-upstream_version: 5.10.2
+version: 5.12.4-1
+upstream_version: 5.12.4
 description: Open source chart plotter and navigation software
 long_description: |
   OpenCPN is a free software project to create a concise chart plotter and
@@ -37,8 +37,7 @@ depends:
 web_ui:
   enabled: true
   path: /
-  port: 8080
+  port: 3002
   protocol: http
 default_config:
-  OPENCPN_VNC_PORT: "8080"
-  OPENCPN_VNC_PASSWORD: halos
+  OPENCPN_PORT: "3002"

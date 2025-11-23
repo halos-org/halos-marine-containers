@@ -1,7 +1,7 @@
 
 services:
   grafana:
-    image: grafana/grafana-oss:12.1.4
+    image: grafana/grafana:12.1.4
     container_name: grafana
     restart: no
     ports:
