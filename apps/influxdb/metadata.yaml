@@ -1,6 +1,6 @@
 name: InfluxDB
 package_name: influxdb-container
-version: 2.7.12-3
+version: 2.7.12-4
 upstream_version: 2.7.12
 description: Time-series database for marine data logging
 long_description: |

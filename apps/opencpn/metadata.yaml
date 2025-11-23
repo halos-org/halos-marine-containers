@@ -1,6 +1,6 @@
 name: OpenCPN
 package_name: opencpn-container
-version: 5.10.2-4
+version: 5.10.2-5
 upstream_version: 5.10.2
 description: Open source chart plotter and navigation software
 long_description: |
