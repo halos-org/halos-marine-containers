@@ -1,7 +1,7 @@
 name: Grafana
 package_name: grafana-container
-version: 11.3.2-1
-upstream_version: 11.3.2
+version: 12.1.4-1
+upstream_version: 12.1.4
 description: Data visualization and monitoring platform
 long_description: |
   Grafana is an open-source platform for monitoring and observability. Create

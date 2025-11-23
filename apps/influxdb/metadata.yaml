@@ -1,7 +1,7 @@
 name: InfluxDB
 package_name: influxdb-container
-version: 2.7.10-1
-upstream_version: 2.7.10
+version: 2.7.12-1
+upstream_version: 2.7.12
 description: Time-series database for marine data logging
 long_description: |
   InfluxDB is a high-performance time-series database designed for handling

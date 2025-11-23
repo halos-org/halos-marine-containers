@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   grafana:
-    image: grafana/grafana-oss:12.1.1
+    image: grafana/grafana-oss:12.1.4
     container_name: grafana
     restart: no
     ports:
