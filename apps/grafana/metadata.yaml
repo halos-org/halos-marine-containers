@@ -1,6 +1,6 @@
 name: Grafana
 package_name: grafana-container
-version: 12.1.4-1
+version: 12.1.4-5
 upstream_version: 12.1.4
 description: Data visualization and monitoring platform
 long_description: |
