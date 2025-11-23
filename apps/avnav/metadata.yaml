@@ -1,6 +1,6 @@
 name: AvNav
 package_name: avnav-container
-version: 20240520-1
+version: 20240520-2
 upstream_version: "20240520"
 description: Touch-optimized chart plotter for sailing and motor yachts
 long_description: |
