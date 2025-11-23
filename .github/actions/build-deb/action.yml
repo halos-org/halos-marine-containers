@@ -7,6 +7,14 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    - name: Get container-packaging-tools version
+      id: tools-version
+      shell: bash
+      run: |
+        VERSION=$(curl -s https://api.github.com/repos/hatlabs/container-packaging-tools/releases/latest | jq -r '.tag_name')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Using container-packaging-tools: $VERSION"
+
     - name: Build Docker image
       uses: docker/build-push-action@v5
       with:
@@ -16,6 +24,8 @@ runs:
         load: true
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        build-args: |
+          CONTAINER_TOOLS_VERSION=${{ steps.tools-version.outputs.version }}
 
     - name: Build packages in Docker
       shell: bash

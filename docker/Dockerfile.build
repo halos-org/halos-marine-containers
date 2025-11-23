@@ -1,5 +1,9 @@
 FROM debian:trixie
 
+# Cache-buster: update this when container-packaging-tools is updated
+# This ARG is set by CI to the latest release tag
+ARG CONTAINER_TOOLS_VERSION=latest
+
 # Install Debian packaging tools and dependencies
 RUN apt-get update && apt-get install -y \
     debhelper \
@@ -17,7 +21,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install container-packaging-tools from GitHub releases
-RUN ASSET_URL=$(curl -s https://api.github.com/repos/hatlabs/container-packaging-tools/releases/latest | \
+# Note: The echo of CONTAINER_TOOLS_VERSION busts the Docker cache when the version changes
+RUN echo "Installing container-packaging-tools version: ${CONTAINER_TOOLS_VERSION}" && \
+    ASSET_URL=$(curl -s https://api.github.com/repos/hatlabs/container-packaging-tools/releases/latest | \
       jq -r '.assets[] | select(.name | endswith(".deb")) | .browser_download_url') && \
     if [ -z "$ASSET_URL" ]; then \
       echo "Error: Could not find .deb asset in latest release" >&2; \
