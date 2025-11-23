@@ -1,84 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-# Generate debian/changelog dynamically for CI builds
-# Usage: generate-changelog.sh --upstream <version> --revision <N>
-# Example: generate-changelog.sh --upstream 0.1.0 --revision 2
+# This script is called by the shared workflow but intentionally does NOT
+# generate/overwrite the changelog. The marine-container-store package
+# uses its committed store/debian/changelog as the canonical version source.
 #
-# Generates a debian/changelog entry with format: <upstream>-<revision>
+# To release a new store package version:
+# 1. Update store/debian/changelog with new version and changes
+# 2. Commit and push to main
+#
+# The VERSION file is a meta/bundle version for git tags only,
+# not used for the store package version.
 
-UPSTREAM=""
-REVISION=""
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --upstream)
-            UPSTREAM="$2"
-            shift 2
-            ;;
-        --revision)
-            REVISION="$2"
-            shift 2
-            ;;
-        *)
-            echo "Error: Unknown option $1" >&2
-            echo "Usage: $0 --upstream <version> --revision <N>" >&2
-            exit 1
-            ;;
-    esac
-done
-
-if [ -z "$UPSTREAM" ] || [ -z "$REVISION" ]; then
-    echo "Error: Both --upstream and --revision are required" >&2
-    echo "Usage: $0 --upstream <version> --revision <N>" >&2
-    exit 1
-fi
-
-# Package name
-PACKAGE_NAME="marine-container-store"
-
-# Debian version format: upstream-revision
-DEBIAN_VERSION="${UPSTREAM}-${REVISION}"
-
-# Distribution (unstable for CI builds)
-DISTRIBUTION="unstable"
-
-# Urgency
-URGENCY="medium"
-
-# Maintainer information
-MAINTAINER_NAME="${MAINTAINER_NAME:-Hat Labs}"
-MAINTAINER_EMAIL="${MAINTAINER_EMAIL:-info@hatlabs.fi}"
-
-# Date in RFC 2822 format
-DATE=$(date -R)
-
-# Get recent changes from git log
-# Get commits since last published release tag
-LAST_TAG=$(git tag -l "v*" --sort=-version:refname | grep -v "_pre" | head -n1 || echo "")
-
-if [ -n "$LAST_TAG" ]; then
-    CHANGES=$(git log "${LAST_TAG}"..HEAD --pretty=format:"  * %s" --no-merges || echo "  * Build ${REVISION}")
-else
-    # No previous tags, use recent commits
-    CHANGES=$(git log -10 --pretty=format:"  * %s" --no-merges || echo "  * Build ${REVISION}")
-fi
-
-# If no changes (shouldn't happen), use a default message
-if [ -z "$CHANGES" ]; then
-    CHANGES="  * Build ${REVISION}"
-fi
-
-# Generate store/debian/changelog entry
-cat > store/debian/changelog <<EOF
-${PACKAGE_NAME} (${DEBIAN_VERSION}) ${DISTRIBUTION}; urgency=${URGENCY}
-
-${CHANGES}
-
- -- ${MAINTAINER_NAME} <${MAINTAINER_EMAIL}>  ${DATE}
-EOF
-
-echo "Generated store/debian/changelog:"
-echo "  Version: ${DEBIAN_VERSION}"
-echo "  Distribution: ${DISTRIBUTION}"
-cat store/debian/changelog
+echo "Using committed store/debian/changelog (not generating)"
+echo "Store package version: $(head -1 store/debian/changelog | grep -oP '\(\K[^)]+' || echo 'unknown')"
