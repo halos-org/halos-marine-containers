@@ -4,14 +4,19 @@ description: 'Run all tests for halos-marine-containers'
 runs:
   using: 'composite'
   steps:
-    - name: Run pytest tests
-      run: |
-        docker run --rm -v $(pwd):/workspace -w /workspace python:3.11-slim \
-          bash -c "pip install -q pytest pyyaml && python -m pytest tests/ -v"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
       shell: bash
+      run: pip install pytest pyyaml
+
+    - name: Run pytest tests
+      shell: bash
+      run: python -m pytest tests/ -v
 
     - name: Validate YAML syntax
-      run: |
-        docker run --rm -v $(pwd):/workspace -w /workspace python:3.11-slim \
-          bash -c "pip install -q pyyaml && python -c 'import yaml; yaml.safe_load(open(\"store/marine.yaml\"))'"
       shell: bash
+      run: python -c 'import yaml; yaml.safe_load(open("store/marine.yaml"))'

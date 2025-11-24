@@ -29,14 +29,15 @@ cd "$REPO_ROOT"
 rm -f marine-container-store_*.deb marine-container-store_*.buildinfo marine-container-store_*.changes
 
 # Build container app packages using container-packaging-tools
-if command -v generate-container-packages >/dev/null 2>&1; then
+if command -v uvx >/dev/null 2>&1; then
     echo ""
     echo "=== Building container app packages ==="
     for app_dir in "${REPO_ROOT}/apps"/*; do
         if [ -d "$app_dir" ]; then
             app_name=$(basename "$app_dir")
             echo "Building package for: $app_name"
-            if ! generate-container-packages -o "$BUILD_DIR" "$app_dir"; then
+            if ! uvx --from git+https://github.com/hatlabs/container-packaging-tools.git \
+                     generate-container-packages -o "$BUILD_DIR" "$app_dir"; then
                 echo "ERROR: Failed to build package for $app_name" >&2
                 exit 1
             fi
@@ -44,8 +45,8 @@ if command -v generate-container-packages >/dev/null 2>&1; then
     done
 else
     echo ""
-    echo "WARNING: container-packaging-tools not installed"
-    echo "Install with: apt install container-packaging-tools"
+    echo "WARNING: uvx not installed"
+    echo "Install with: pip install uv"
     echo "Skipping container app package generation"
 fi
 

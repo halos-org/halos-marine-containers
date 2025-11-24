@@ -4,35 +4,27 @@ description: 'Build all .deb packages (store + container apps)'
 runs:
   using: 'composite'
   steps:
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Get container-packaging-tools version
-      id: tools-version
-      shell: bash
-      run: |
-        VERSION=$(curl -s https://api.github.com/repos/hatlabs/container-packaging-tools/releases/latest | jq -r '.tag_name')
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "Using container-packaging-tools: $VERSION"
-
-    - name: Build Docker image
-      uses: docker/build-push-action@v5
+    - name: Set up Python
+      uses: actions/setup-python@v5
       with:
-        context: .
-        file: docker/Dockerfile.build
-        tags: marine-builder
-        load: true
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        build-args: |
-          CONTAINER_TOOLS_VERSION=${{ steps.tools-version.outputs.version }}
+        python-version: '3.11'
 
-    - name: Build packages in Docker
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+
+    - name: Install Debian packaging tools
       shell: bash
       run: |
-        docker run --rm \
-          -u $(id -u):$(id -g) \
-          -v "$PWD:/workspace" \
-          -w /workspace \
-          marine-builder \
-          ./tools/build-all.sh
+        sudo apt-get update
+        sudo apt-get install -y \
+          debhelper \
+          dh-python \
+          build-essential \
+          fakeroot \
+          devscripts \
+          dpkg-dev \
+          python3-all
+
+    - name: Build packages
+      shell: bash
+      run: ./tools/build-all.sh
