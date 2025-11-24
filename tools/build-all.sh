@@ -36,7 +36,7 @@ if command -v uvx >/dev/null 2>&1; then
         if [ -d "$app_dir" ]; then
             app_name=$(basename "$app_dir")
             echo "Building package for: $app_name"
-            if ! uvx --from git+https://github.com/hatlabs/container-packaging-tools.git@refactor/simplify-systemd-service \
+            if ! uvx --from git+https://github.com/hatlabs/container-packaging-tools.git \
                      generate-container-packages -o "$BUILD_DIR" "$app_dir"; then
                 echo "ERROR: Failed to build package for $app_name" >&2
                 exit 1
