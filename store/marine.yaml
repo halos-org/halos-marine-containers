@@ -7,7 +7,11 @@ description: |
 icon: /usr/share/container-stores/marine/icon.svg
 
 filters:
-  # Packages with marine tags (from any repo)
+  # Repository origins (from APT Release file "Origin:" field)
+  include_origins:
+    - "Hat Labs"
+
+  # Packages with marine tags
   include_tags:
     - field::marine
 

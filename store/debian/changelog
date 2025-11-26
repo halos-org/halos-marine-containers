@@ -1,3 +1,10 @@
+marine-container-store (0.2.0-1) stable; urgency=medium
+
+  * Add repository origin filter to restrict packages to Hat Labs only
+  * Ensure only curated Hat Labs marine packages appear in store
+
+ -- Hat Labs <info@hatlabs.fi>  Tue, 26 Nov 2025 12:00:00 +0200
+
 marine-container-store (0.1.0-1) stable; urgency=medium
 
   * Initial release
