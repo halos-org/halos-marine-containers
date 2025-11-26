@@ -66,15 +66,16 @@ banner: /usr/share/container-stores/marine/banner.png
 # Filter logic (OR within each category, AND between categories)
 filters:
   # Repository origins (from APT Release file "Origin:" field)
+  # REQUIRED: Must be non-empty for performance optimization
   include_origins:
     - "Hat Labs"
 
-  # Debian sections
+  # Debian sections (optional)
   include_sections:
     - net
     - web
 
-  # Debian tags (faceted debtags)
+  # Debian tags (faceted debtags, optional)
   include_tags:
     - field::marine
     - use::routing
@@ -109,6 +110,13 @@ display:
 ```
 
 ### Filter Logic Details
+
+**Mandatory Origin Filtering**:
+- `include_origins` is REQUIRED and must be non-empty
+- Container packages always come from custom repositories (never upstream Debian/RPi)
+- This enables performance optimization through origin pre-filtering
+- Cockpit-apt pre-filters by origin first, then applies additional filters
+- Can reduce the filter set by 99% for typical container stores
 
 **OR Logic Within Categories**:
 - If a package matches ANY origin in `include_origins`, it's included
