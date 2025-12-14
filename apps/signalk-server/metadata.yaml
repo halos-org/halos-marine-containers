@@ -1,5 +1,4 @@
 name: Signal K Server
-package_name: signalk-server-container
 version: 2.18.0-6
 upstream_version: 2.18.0
 description: Signal K server for marine data processing and routing
@@ -14,7 +13,6 @@ long_description: |
   - Web app server for marine applications
   - Plugin system for extending functionality
   - Instrument integration and display
-
 homepage: https://signalk.org/
 maintainer: Hat Labs <support@hatlabs.fi>
 license: Apache-2.0

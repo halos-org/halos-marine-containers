@@ -1,5 +1,4 @@
 name: Grafana
-package_name: grafana-container
 version: 12.1.4-6
 upstream_version: 12.1.4
 description: Data visualization and monitoring platform
@@ -14,7 +13,6 @@ long_description: |
   - Alert notifications
   - Dashboard sharing and templating
   - Plugin ecosystem
-
 homepage: https://grafana.com/
 maintainer: Hat Labs <support@hatlabs.fi>
 license: AGPL-3.0
