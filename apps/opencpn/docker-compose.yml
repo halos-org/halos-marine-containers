@@ -3,7 +3,11 @@ services:
   opencpn:
     image: ghcr.io/hatlabs/opencpn-docker:5.12.4
     container_name: opencpn
-    restart: no
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     ports:
       - "${OPENCPN_PORT:-3021}:3001"
     volumes:

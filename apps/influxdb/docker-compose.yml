@@ -3,7 +3,11 @@ services:
   influxdb:
     image: influxdb:2.7.12
     container_name: influxdb
-    restart: no
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     ports:
       - "${INFLUXDB_PORT:-8086}:8086"
     volumes:

@@ -3,7 +3,11 @@ services:
   avnav:
     image: xfreex/avnav-stable:20251028
     container_name: avnav
-    restart: no
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     ports:
       - "${AVNAV_HTTP_PORT:-3011}:8080"
       - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"
