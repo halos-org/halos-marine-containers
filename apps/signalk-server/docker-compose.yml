@@ -3,7 +3,11 @@ services:
   signalk-server:
     image: cr.signalk.io/signalk/signalk-server:v2.18.0
     container_name: signalk-server
-    restart: no
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     network_mode: host
     environment:
       - NODE_NO_WARNINGS=1
@@ -16,6 +20,3 @@ services:
       - no-new-privileges:false
     cap_add:
       - NET_ADMIN
-    logging:
-      options:
-        max-size: 10m

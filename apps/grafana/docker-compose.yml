@@ -3,7 +3,11 @@ services:
   grafana:
     image: grafana/grafana:12.1.4
     container_name: grafana
-    restart: no
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     ports:
       - "${GRAFANA_PORT:-3001}:3000"
     volumes:
