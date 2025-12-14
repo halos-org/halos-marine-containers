@@ -1,5 +1,4 @@
 name: InfluxDB
-package_name: influxdb-container
 version: 2.7.12-5
 upstream_version: 2.7.12
 description: Time-series database for marine data logging
@@ -14,7 +13,6 @@ long_description: |
   - Powerful query language (Flux)
   - Retention policies for automatic data management
   - Integration with Grafana for visualization
-
 homepage: https://www.influxdata.com/
 maintainer: Hat Labs <support@hatlabs.fi>
 license: MIT

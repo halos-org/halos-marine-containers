@@ -1,5 +1,4 @@
 name: OpenCPN
-package_name: opencpn-container
 version: 5.12.4-3
 upstream_version: 5.12.4
 description: Open source chart plotter and navigation software
@@ -15,7 +14,6 @@ long_description: |
   - Weather routing and GRIB file support
   - Extensive plugin system
   - Route and waypoint management
-
 homepage: https://opencpn.org/
 maintainer: Hat Labs <support@hatlabs.fi>
 license: GPL-2.0
