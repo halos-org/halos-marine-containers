@@ -22,6 +22,8 @@ services:
     privileged: true
     networks:
       - avnav-net
+    labels:
+      homarr.icon: /usr/share/pixmaps/marine-avnav-container.png
 
 networks:
   avnav-net:

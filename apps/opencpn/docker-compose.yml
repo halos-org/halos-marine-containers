@@ -20,6 +20,8 @@ services:
     shm_size: 1gb
     networks:
       - opencpn-net
+    labels:
+      homarr.icon: /usr/share/pixmaps/marine-opencpn-container.png
 
 networks:
   opencpn-net:
