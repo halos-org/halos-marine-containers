@@ -25,7 +25,7 @@ services:
     networks:
       - influxdb-net
     labels:
-      homarr.icon: /usr/share/pixmaps/influxdb-container.svg
+      homarr.icon: /usr/share/pixmaps/marine-influxdb-container.svg
 
 networks:
   influxdb-net:
