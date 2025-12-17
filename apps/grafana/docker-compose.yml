@@ -3,6 +3,7 @@ services:
   grafana:
     image: grafana/grafana:12.1.4
     container_name: grafana
+    user: "472"
     restart: unless-stopped
     logging:
       driver: journald
