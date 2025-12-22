@@ -35,6 +35,12 @@ web_ui:
   port: 3000
   protocol: http
   visible: true
+layout:
+  priority: 40
+  width: 2
+  height: 2
+  x_offset: 0
+  y_offset: 1
 default_config:
   SIGNALK_PORT: "3000"
   SIGNALK_ADMIN_USER: admin
