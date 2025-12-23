@@ -9,13 +9,13 @@ Homepage: https://github.com/hatlabs/halos-marine-containers
 Package: marine-container-store
 Architecture: all
 Tag: role::container-store
-Description: Marine container application store definition for Cockpit APT
+Description: Marine container application store for Cockpit Container Apps
  This package provides the store definition and branding for the Marine
- container application store, designed to work with cockpit-apt.
+ container application store, designed to work with cockpit-container-apps.
  .
- When installed alongside cockpit-apt, it enables a curated view of marine
- and sailing applications including navigation software, chart plotters,
- weather routing, data logging, and monitoring dashboards.
+ When installed alongside cockpit-container-apps, it enables a curated
+ view of marine and sailing applications including navigation software,
+ chart plotters, weather routing, data logging, and monitoring dashboards.
  .
  The store filters packages from apt.hatlabs.fi and other repositories
  based on Debian tags (debtags), sections, and package metadata.
