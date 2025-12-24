@@ -1,6 +1,6 @@
 name: OpenCPN
 app_id: opencpn
-version: 5.12.4-4
+version: 5.12.4-5
 upstream_version: 5.12.4
 description: Open source chart plotter and navigation software
 long_description: |
@@ -39,5 +39,9 @@ web_ui:
   port: 3021
   protocol: https
   visible: true
+routing:
+  subdomain: opencpn
+  auth:
+    mode: none
 default_config:
   OPENCPN_PORT: "3021"

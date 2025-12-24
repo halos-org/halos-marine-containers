@@ -1,6 +1,6 @@
 name: AvNav
 app_id: avnav
-version: 20251028-4
+version: 20251028-5
 upstream_version: "20251028"
 description: Touch-optimized chart plotter for sailing and motor yachts
 long_description: |
@@ -40,6 +40,10 @@ web_ui:
   port: 8082
   protocol: http
   visible: true
+routing:
+  subdomain: avnav
+  auth:
+    mode: none
 default_config:
   AVNAV_HTTP_PORT: "8082"
 layout:
