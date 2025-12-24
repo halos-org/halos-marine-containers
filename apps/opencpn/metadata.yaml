@@ -39,8 +39,9 @@ web_ui:
   port: 3021
   protocol: https
   visible: true
-traefik:
+routing:
   subdomain: opencpn
-  auth: none
+  auth:
+    mode: none
 default_config:
   OPENCPN_PORT: "3021"

@@ -37,13 +37,14 @@ web_ui:
   port: 3001
   protocol: http
   visible: true
-traefik:
+routing:
   subdomain: grafana
-  auth: forward_auth
-  forward_auth:
-    headers:
-      Remote-User: X-WEBAUTH-USER
-      Remote-Groups: X-WEBAUTH-GROUPS
+  auth:
+    mode: forward_auth
+    forward_auth:
+      headers:
+        Remote-User: X-WEBAUTH-USER
+        Remote-Groups: X-WEBAUTH-GROUPS
 default_config:
   GRAFANA_PORT: "3001"
   GRAFANA_ADMIN_USER: admin

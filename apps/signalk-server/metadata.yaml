@@ -41,9 +41,10 @@ layout:
   height: 2
   x_offset: 0
   y_offset: 1
-traefik:
+routing:
   subdomain: signalk
-  auth: none
+  auth:
+    mode: none
   host_port: 3000
 default_config:
   SIGNALK_PORT: "3000"
