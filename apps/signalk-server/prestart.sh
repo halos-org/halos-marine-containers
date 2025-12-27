@@ -84,6 +84,7 @@ redirect_uris:
   - 'https://signalk.${HALOS_DOMAIN}/signalk/v1/auth/oidc/callback'
 scopes: [openid, profile, email, groups]
 consent_mode: implicit
+token_endpoint_auth_method: client_secret_post
 EOF
     echo "OIDC client snippet installed to ${OIDC_CLIENT_SNIPPET}"
     echo "NOTE: Restart Authelia to pick up the new OIDC client"
