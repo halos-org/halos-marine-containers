@@ -9,6 +9,10 @@ services:
       options:
         tag: "{{.Name}}"
     network_mode: host
+    extra_hosts:
+      - "auth.${HALOS_DOMAIN}:127.0.0.1"
+      - "${HALOS_DOMAIN}:127.0.0.1"
+      - "signalk.${HALOS_DOMAIN}:127.0.0.1"
     environment:
       - NODE_NO_WARNINGS=1
       - SIGNALK_OIDC_ENABLED=${SIGNALK_OIDC_ENABLED:-false}
