@@ -6,7 +6,7 @@
 # can seamlessly access Signal K without re-authenticating.
 #
 # This tests the SSO (Single Sign-On) behavior - the Authelia session should be
-# shared across all subdomains (*.halos.local).
+# shared across all subdomains (*.<domain>).
 #
 # Usage:
 #   ./test-sso-flow.sh [options]
@@ -15,7 +15,7 @@
 #   -h, --help              Show this help message
 #   -u, --username USER     Authelia username (default: admin)
 #   -p, --password PASS     Authelia password (required)
-#   -d, --domain DOMAIN     Base domain (default: halos.local)
+#   -d, --domain DOMAIN     Base domain (required, e.g., myhostname.local)
 #   -v, --verbose           Show verbose output
 #
 # Test Scenarios:
@@ -31,7 +31,7 @@ set -euo pipefail
 # Default values
 USERNAME="${AUTHELIA_USERNAME:-admin}"
 PASSWORD="${AUTHELIA_PASSWORD:-}"
-DOMAIN="${HALOS_DOMAIN:-halos.local}"
+DOMAIN="${HALOS_DOMAIN:-}"
 VERBOSE=false
 INSECURE=true
 
@@ -67,6 +67,11 @@ done
 
 if [[ -z "$PASSWORD" ]]; then
     log_error "Password is required. Use -p or set AUTHELIA_PASSWORD"
+    exit 1
+fi
+
+if [[ -z "$DOMAIN" ]]; then
+    log_error "Domain is required. Use -d or set HALOS_DOMAIN (e.g., myhostname.local)"
     exit 1
 fi
 

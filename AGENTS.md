@@ -150,12 +150,12 @@ Test the complete OIDC authentication flow between Signal K and Authelia:
 
 ```bash
 # Run the OIDC flow test
-./tools/test-oidc-flow.sh -p "PASSWORD" -v
+./tools/test-oidc-flow.sh -d myhostname.local -p "PASSWORD" -v
 
 # Options:
 #   -u, --username USER     Authelia username (default: admin)
 #   -p, --password PASS     Authelia password (required)
-#   -d, --domain DOMAIN     Base domain (default: halos.local)
+#   -d, --domain DOMAIN     Base domain (required, e.g., myhostname.local)
 #   -v, --verbose           Show verbose output
 ```
 
@@ -184,7 +184,7 @@ Test results are saved to `/tmp/oidc_test_<timestamp>/`:
 Run all OIDC tests including auto-login, permissions, and SSO:
 
 ```bash
-./tools/test-oidc-all.sh -p "PASSWORD" -v
+./tools/test-oidc-all.sh -d myhostname.local -p "PASSWORD" -v
 ```
 
 This tests:
@@ -199,7 +199,7 @@ This tests:
 Test single sign-on session sharing between Authelia and Signal K:
 
 ```bash
-./tools/test-sso-flow.sh -p "PASSWORD" -v
+./tools/test-sso-flow.sh -d myhostname.local -p "PASSWORD" -v
 ```
 
 This specifically tests that a user who is already authenticated with Authelia (e.g., from Homarr) can access Signal K without re-authenticating.

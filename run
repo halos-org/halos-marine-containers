@@ -210,7 +210,6 @@ function list-versions {
 
 # Docker image name for building
 readonly DOCKER_IMAGE="halos-marine-containers-builder"
-readonly DEFAULT_DEPLOY_TARGET="halos.local"
 
 function build-debtools {
   #@ Build Docker image for package building
@@ -264,10 +263,23 @@ function build {
 }
 
 function deploy {
-  #@ Deploy packages to test server (default: all packages to halos.local)
+  #@ Deploy packages to test server (usage: ./run deploy <target> [packages])
   #@ Category: Build
-  local target="${1:-$DEFAULT_DEPLOY_TARGET}"
+  local target="${1:-}"
   local packages="${2:-all}"
+
+  if [[ -z "$target" ]]; then
+    echo "Usage: ./run deploy <target> [packages]"
+    echo ""
+    echo "Arguments:"
+    echo "  target     Target host (e.g., pi@myhost.local)"
+    echo "  packages   Package names or 'all' (default: all)"
+    echo ""
+    echo "Examples:"
+    echo "  ./run deploy pi@myhost.local"
+    echo "  ./run deploy pi@myhost.local signalk"
+    return 1
+  fi
   local deb_files=()
 
   if [ "$packages" = "all" ]; then

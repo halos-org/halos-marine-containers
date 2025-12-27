@@ -13,7 +13,7 @@
 #
 # Options:
 #   -p, --password PASS     Authelia password (required)
-#   -d, --domain DOMAIN     Base domain (default: halos.local)
+#   -d, --domain DOMAIN     Base domain (required, e.g., myhostname.local)
 #   -v, --verbose           Show verbose output
 #
 
@@ -22,7 +22,7 @@ set -euo pipefail
 # Default values
 USERNAME="${AUTHELIA_USERNAME:-admin}"
 PASSWORD="${AUTHELIA_PASSWORD:-}"
-DOMAIN="${HALOS_DOMAIN:-halos.local}"
+DOMAIN="${HALOS_DOMAIN:-}"
 VERBOSE=false
 INSECURE=true
 
@@ -57,6 +57,11 @@ done
 
 if [[ -z "$PASSWORD" ]]; then
     log_fail "Password is required. Use -p or set AUTHELIA_PASSWORD"
+    exit 1
+fi
+
+if [[ -z "$DOMAIN" ]]; then
+    log_fail "Domain is required. Use -d or set HALOS_DOMAIN (e.g., myhostname.local)"
     exit 1
 fi
 
