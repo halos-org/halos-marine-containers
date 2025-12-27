@@ -29,6 +29,7 @@ debian_section: net
 architecture: all
 depends:
   - docker-ce (>= 20.10) | docker.io (>= 20.10)
+  - python3-bcrypt
 web_ui:
   enabled: true
   path: /
@@ -48,4 +49,12 @@ routing:
   host_port: 3000
 default_config:
   SIGNALK_PORT: "3000"
-  SIGNALK_ADMIN_USER: admin
+  # OIDC Configuration - enabled by default for SSO integration
+  SIGNALK_OIDC_ENABLED: "true"
+  SIGNALK_OIDC_ISSUER: "https://auth.${HALOS_DOMAIN:-halos.local}"
+  SIGNALK_OIDC_CLIENT_ID: "signalk"
+  SIGNALK_OIDC_CLIENT_SECRET: ""
+  SIGNALK_OIDC_PROVIDER_NAME: "HaLOS SSO"
+  SIGNALK_OIDC_DEFAULT_PERMISSION: "readonly"
+  SIGNALK_OIDC_ADMIN_GROUPS: "admins"
+  SIGNALK_OIDC_READWRITE_GROUPS: "users"

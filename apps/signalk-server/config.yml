@@ -13,14 +13,3 @@ groups:
         max: 65535
         required: true
         description: Port for web interface and API
-
-  - id: admin
-    label: Administration
-    description: Administrator account settings
-    fields:
-      - id: SIGNALK_ADMIN_USER
-        label: Admin Username
-        type: string
-        default: admin
-        required: true
-        description: Username for the initial administrator account
