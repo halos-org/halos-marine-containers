@@ -61,10 +61,15 @@ if [ ! -f "${OIDC_SECRET_FILE}" ]; then
     echo "OIDC client secret stored in ${OIDC_SECRET_FILE}"
 fi
 
-# Write OIDC client secret to runtime env file for systemd to load
+# Write runtime env file for systemd to load
+# This expands HALOS_DOMAIN variables that systemd's EnvironmentFile doesn't expand
 RUNTIME_ENV_DIR="/run/container-apps/marine-signalk-server-container"
 mkdir -p "${RUNTIME_ENV_DIR}"
-echo "SIGNALK_OIDC_CLIENT_SECRET=$(cat "${OIDC_SECRET_FILE}")" > "${RUNTIME_ENV_DIR}/runtime.env"
+cat > "${RUNTIME_ENV_DIR}/runtime.env" << EOF
+SIGNALK_OIDC_CLIENT_SECRET=$(cat "${OIDC_SECRET_FILE}")
+SIGNALK_OIDC_ISSUER=https://auth.${HALOS_DOMAIN}
+SIGNALK_OIDC_REDIRECT_URI=https://signalk.${HALOS_DOMAIN}/signalk/v1/auth/oidc/callback
+EOF
 
 # Install OIDC client snippet for Authelia
 OIDC_CLIENTS_DIR="/etc/halos/oidc-clients.d"

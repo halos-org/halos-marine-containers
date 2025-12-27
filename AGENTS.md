@@ -142,6 +142,68 @@ The `store/marine.yaml` defines:
 - Custom section labels and icons
 - Store branding
 
+## Testing
+
+### OIDC Flow Testing
+
+Test the complete OIDC authentication flow between Signal K and Authelia:
+
+```bash
+# Run the OIDC flow test
+./tools/test-oidc-flow.sh -p "PASSWORD" -v
+
+# Options:
+#   -u, --username USER     Authelia username (default: admin)
+#   -p, --password PASS     Authelia password (required)
+#   -d, --domain DOMAIN     Base domain (default: halos.local)
+#   -v, --verbose           Show verbose output
+```
+
+The test script performs a complete OIDC flow:
+1. Initiates OIDC login from Signal K
+2. Follows redirect to Authelia
+3. Authenticates with Authelia
+4. Gets authorization code
+5. Completes OIDC callback
+6. Verifies login status and user permissions
+
+**Finding the Authelia admin password:**
+- Check `/etc/halos-homarr-branding/branding.toml` on the device (under `[credentials]` section)
+- The password is configured in the HaLOS branding package and synced to Authelia by homarr-container-adapter
+
+### Test Output
+
+Test results are saved to `/tmp/oidc_test_<timestamp>/`:
+- `step*_headers.txt` - HTTP headers from each step
+- `step*_body.html` - Response bodies
+- `step6_login_status.json` - Final login status
+- `step7_jwt_decoded.json` - Decoded JWT token
+
+### Comprehensive OIDC Test Suite
+
+Run all OIDC tests including auto-login, permissions, and SSO:
+
+```bash
+./tools/test-oidc-all.sh -p "PASSWORD" -v
+```
+
+This tests:
+1. **Auto-login configuration** - Verifies OIDC and auto-login are enabled
+2. **OIDC login redirect** - Verifies redirect to Authelia works
+3. **Full login flow** - Complete authentication and callback
+4. **Admin permissions** - Verifies admin group mapping works
+5. **SSO session sharing** - Verifies existing Authelia sessions are reused
+
+### SSO Flow Testing
+
+Test single sign-on session sharing between Authelia and Signal K:
+
+```bash
+./tools/test-sso-flow.sh -p "PASSWORD" -v
+```
+
+This specifically tests that a user who is already authenticated with Authelia (e.g., from Homarr) can access Signal K without re-authenticating.
+
 ## Related
 
 - **Parent**: [../AGENTS.md](../AGENTS.md) - Workspace documentation
