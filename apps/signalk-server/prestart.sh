@@ -51,3 +51,40 @@ EOF
     echo "${ADMIN_PASSWORD}" > "${CONTAINER_DATA_ROOT}/admin-password"
     chmod 600 "${CONTAINER_DATA_ROOT}/admin-password"
 fi
+
+# Generate OIDC client secret if it doesn't exist
+OIDC_SECRET_FILE="${CONTAINER_DATA_ROOT}/oidc-secret"
+if [ ! -f "${OIDC_SECRET_FILE}" ]; then
+    echo "Generating OIDC client secret..."
+    openssl rand -hex 32 > "${OIDC_SECRET_FILE}"
+    chmod 644 "${OIDC_SECRET_FILE}"
+    echo "OIDC client secret stored in ${OIDC_SECRET_FILE}"
+fi
+
+# Write OIDC client secret to runtime env file for systemd to load
+RUNTIME_ENV_DIR="/run/container-apps/marine-signalk-server-container"
+mkdir -p "${RUNTIME_ENV_DIR}"
+echo "SIGNALK_OIDC_CLIENT_SECRET=$(cat "${OIDC_SECRET_FILE}")" > "${RUNTIME_ENV_DIR}/runtime.env"
+
+# Install OIDC client snippet for Authelia
+OIDC_CLIENTS_DIR="/etc/halos/oidc-clients.d"
+OIDC_CLIENT_SNIPPET="${OIDC_CLIENTS_DIR}/signalk.yml"
+if [ ! -f "${OIDC_CLIENT_SNIPPET}" ]; then
+    echo "Installing OIDC client snippet for Authelia..."
+    mkdir -p "${OIDC_CLIENTS_DIR}"
+    cat > "${OIDC_CLIENT_SNIPPET}" << 'EOF'
+# Signal K OIDC Client Snippet
+# Installed by marine-signalk-server-container prestart.sh
+# Authelia's prestart script merges all snippets into oidc-clients.yml
+
+client_id: signalk
+client_name: Signal K Server
+client_secret_file: /var/lib/container-apps/marine-signalk-server-container/data/oidc-secret
+redirect_uris:
+  - 'https://signalk.${HALOS_DOMAIN}/signalk/v1/auth/oidc/callback'
+scopes: [openid, profile, email, groups]
+consent_mode: implicit
+EOF
+    echo "OIDC client snippet installed to ${OIDC_CLIENT_SNIPPET}"
+    echo "NOTE: Restart Authelia to pick up the new OIDC client"
+fi
