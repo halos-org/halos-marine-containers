@@ -1,7 +1,7 @@
 
 services:
   signalk-server:
-    image: cr.signalk.io/signalk/signalk-server:v2.18.0
+    image: ghcr.io/hatlabs/signalk-server:v2.19.0-beta.4-oidc-fix
     container_name: signalk-server
     restart: unless-stopped
     logging:
@@ -9,8 +9,24 @@ services:
       options:
         tag: "{{.Name}}"
     network_mode: host
+    extra_hosts:
+      - "auth.${HALOS_DOMAIN}:127.0.0.1"
+      - "${HALOS_DOMAIN}:127.0.0.1"
+      - "signalk.${HALOS_DOMAIN}:127.0.0.1"
     environment:
       - NODE_NO_WARNINGS=1
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - SIGNALK_OIDC_ENABLED=${SIGNALK_OIDC_ENABLED:-false}
+      - SIGNALK_OIDC_ISSUER=${SIGNALK_OIDC_ISSUER:-}
+      - SIGNALK_OIDC_CLIENT_ID=${SIGNALK_OIDC_CLIENT_ID:-}
+      - SIGNALK_OIDC_CLIENT_SECRET=${SIGNALK_OIDC_CLIENT_SECRET:-}
+      - SIGNALK_OIDC_REDIRECT_URI=${SIGNALK_OIDC_REDIRECT_URI:-}
+      - SIGNALK_OIDC_SCOPE=${SIGNALK_OIDC_SCOPE:-openid email profile groups}
+      - SIGNALK_OIDC_PROVIDER_NAME=${SIGNALK_OIDC_PROVIDER_NAME:-HaLOS SSO}
+      - SIGNALK_OIDC_DEFAULT_PERMISSION=${SIGNALK_OIDC_DEFAULT_PERMISSION:-readonly}
+      - SIGNALK_OIDC_ADMIN_GROUPS=${SIGNALK_OIDC_ADMIN_GROUPS:-}
+      - SIGNALK_OIDC_READWRITE_GROUPS=${SIGNALK_OIDC_READWRITE_GROUPS:-}
+      - SIGNALK_OIDC_AUTO_LOGIN=${SIGNALK_OIDC_AUTO_LOGIN:-false}
     volumes:
       - ${CONTAINER_DATA_ROOT}/data:/home/node/.signalk
       - /dev:/dev

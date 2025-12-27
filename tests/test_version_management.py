@@ -110,9 +110,10 @@ class TestAppVersionParsing:
             version = data["version"]
 
             # Expected formats:
-            # - Semver: X.Y.Z or X.Y.Z-N (e.g., 2.17.2-1)
+            # - Semver: X.Y.Z, X.Y.Z-N, or X.Y.Z-prerelease-N (e.g., 2.17.2-1, 2.19.0-beta.4-1)
             # - Date-based: YYYYMMDD-N (e.g., 20240520-1)
-            semver_pattern = r"^\d+\.\d+\.\d+(-\d+)?$"
+            # Pre-release identifiers like alpha.N, beta.N, rc.N are allowed
+            semver_pattern = r"^\d+\.\d+\.\d+(-[a-zA-Z]+\.\d+)?(-\d+)?$"
             date_pattern = r"^\d{8}-\d+$"
 
             is_valid = re.match(semver_pattern, version) or re.match(
@@ -120,7 +121,7 @@ class TestAppVersionParsing:
             )
             assert is_valid, (
                 f"App {app_name} has invalid version format: {version} "
-                f"(expected semver like '2.17.2-1' or date-based like '20240520-1')"
+                f"(expected semver like '2.17.2-1' or '2.19.0-beta.4-1', or date-based like '20240520-1')"
             )
 
 

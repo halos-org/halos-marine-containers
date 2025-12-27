@@ -206,6 +206,113 @@ function list-versions {
 }
 
 ################################################################################
+# Build Commands
+
+# Docker image name for building
+readonly DOCKER_IMAGE="halos-marine-containers-builder"
+readonly DEFAULT_DEPLOY_TARGET="halos.local"
+
+function build-debtools {
+  #@ Build Docker image for package building
+  #@ Category: Build
+  echo "Building Docker image for package building..."
+
+  # Create docker directory if it doesn't exist
+  mkdir -p docker
+
+  # Create Dockerfile if it doesn't exist
+  if [ ! -f docker/Dockerfile.debtools ]; then
+    cat > docker/Dockerfile.debtools << 'DOCKERFILE'
+FROM debian:trixie
+
+RUN apt-get update && apt-get install -y \
+    debhelper \
+    dh-python \
+    build-essential \
+    fakeroot \
+    devscripts \
+    dpkg-dev \
+    python3-all \
+    python3-pip \
+    python3-venv \
+    pipx \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pipx install uv && pipx ensurepath
+
+WORKDIR /workspace
+DOCKERFILE
+  fi
+
+  docker build -t "$DOCKER_IMAGE" -f docker/Dockerfile.debtools docker/
+}
+
+function build {
+  #@ Build all container packages (in Docker)
+  #@ Category: Build
+  echo "Building all container packages..."
+
+  # Ensure Docker image exists
+  if ! docker image inspect "$DOCKER_IMAGE" &>/dev/null; then
+    echo "Docker image not found. Building..."
+    build-debtools
+  fi
+
+  # Run build in Docker container
+  docker run --rm -v "$(pwd):/workspace" "$DOCKER_IMAGE" \
+    bash -c "cd /workspace && ./tools/build-all.sh"
+}
+
+function deploy {
+  #@ Deploy packages to test server (default: all packages to halos.local)
+  #@ Category: Build
+  local target="${1:-$DEFAULT_DEPLOY_TARGET}"
+  local packages="${2:-all}"
+  local deb_files=()
+
+  if [ "$packages" = "all" ]; then
+    # Deploy all built packages
+    for deb in build/*.deb; do
+      [ -f "$deb" ] && deb_files+=("$deb")
+    done
+  else
+    # Deploy specific package(s)
+    for pkg in $packages; do
+      local deb_file
+      deb_file=$(ls -t build/*-${pkg}-container*.deb 2>/dev/null | head -1)
+      [ -n "$deb_file" ] && deb_files+=("$deb_file")
+    done
+  fi
+
+  if [ ${#deb_files[@]} -eq 0 ]; then
+    echo "No .deb files found. Run ./run build first."
+    exit 1
+  fi
+
+  echo "Deploying ${#deb_files[@]} package(s) to $target..."
+  for deb in "${deb_files[@]}"; do
+    echo "  - $(basename "$deb")"
+  done
+
+  scp "${deb_files[@]}" "$target:/tmp/"
+
+  local remote_debs=""
+  for deb in "${deb_files[@]}"; do
+    remote_debs="$remote_debs /tmp/$(basename "$deb")"
+  done
+
+  ssh "$target" "sudo apt install -y --allow-downgrades $remote_debs"
+  echo "Deployment complete."
+}
+
+function deploy-build {
+  #@ Build and deploy all packages to test server
+  #@ Category: Build
+  build
+  deploy "$@"
+}
+
+################################################################################
 # Cleanup Commands
 
 function clean {
