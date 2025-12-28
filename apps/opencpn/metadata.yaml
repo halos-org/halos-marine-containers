@@ -43,5 +43,9 @@ routing:
   subdomain: opencpn
   auth:
     mode: none
+layout:
+  priority: 50
+  width: 2
+  height: 2
 default_config:
   OPENCPN_PORT: "3021"

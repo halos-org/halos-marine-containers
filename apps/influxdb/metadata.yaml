@@ -38,6 +38,10 @@ routing:
   subdomain: influxdb
   auth:
     mode: none
+layout:
+  priority: 50
+  width: 2
+  height: 2
 default_config:
   INFLUXDB_HTTP_PORT: "8086"
   INFLUXDB_ADMIN_USER: admin

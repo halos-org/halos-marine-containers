@@ -45,6 +45,10 @@ routing:
       headers:
         Remote-User: X-WEBAUTH-USER
         Remote-Groups: X-WEBAUTH-GROUPS
+layout:
+  priority: 50
+  width: 2
+  height: 2
 default_config:
   GRAFANA_PORT: "3001"
   GRAFANA_ADMIN_USER: admin
