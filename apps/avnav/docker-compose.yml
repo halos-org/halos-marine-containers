@@ -1,4 +1,3 @@
-
 services:
   avnav:
     image: xfreex/avnav-stable:20251028
@@ -8,10 +7,12 @@ services:
       driver: journald
       options:
         tag: "{{.Name}}"
+    # HTTP UI via Traefik at avnav.{hostname}.local
+    # halos-proxy-network is auto-injected by container-packaging-tools
     ports:
-      - "${AVNAV_HTTP_PORT:-3011}:8080"
-      - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"
-      - "${AVNAV_NMEA_PORT:-34567}:34567"
+      # Keep non-HTTP ports for external tool compatibility
+      - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"  # WebSocket for chart plotters
+      - "${AVNAV_NMEA_PORT:-34567}:34567"      # NMEA TCP stream
     volumes:
       - ${CONTAINER_DATA_ROOT}/data:/var/lib/avnav
       - /dev:/dev
@@ -20,9 +21,3 @@ services:
       - GID=1000
     user: "1000:1000"
     privileged: true
-    networks:
-      - avnav-net
-
-networks:
-  avnav-net:
-    driver: bridge

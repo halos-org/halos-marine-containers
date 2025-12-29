@@ -1,4 +1,3 @@
-
 services:
   opencpn:
     image: ghcr.io/hatlabs/opencpn-docker:5.12.4
@@ -8,8 +7,8 @@ services:
       driver: journald
       options:
         tag: "{{.Name}}"
-    ports:
-      - "${OPENCPN_PORT:-3021}:3001"
+    # No direct port exposure - access via Traefik at opencpn.{hostname}.local
+    # halos-proxy-network is auto-injected by container-packaging-tools
     volumes:
       - ${CONTAINER_DATA_ROOT}/config:/config
     environment:
@@ -18,9 +17,3 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     shm_size: 1gb
-    networks:
-      - opencpn-net
-
-networks:
-  opencpn-net:
-    driver: bridge

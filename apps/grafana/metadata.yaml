@@ -1,6 +1,6 @@
 name: Grafana
 app_id: grafana
-version: 12.1.4-10
+version: 12.1.4-11
 upstream_version: 12.1.4
 description: Data visualization and monitoring platform
 long_description: |
@@ -34,7 +34,7 @@ recommends:
 web_ui:
   enabled: true
   path: /
-  port: 3001
+  port: 3000  # Internal Grafana port (Traefik routes here)
   protocol: http
   visible: true
 routing:
@@ -50,6 +50,5 @@ layout:
   width: 2
   height: 2
 default_config:
-  GRAFANA_PORT: "3001"
   GRAFANA_ADMIN_USER: admin
   GRAFANA_ADMIN_PASSWORD: halos

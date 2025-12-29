@@ -1,6 +1,6 @@
 name: OpenCPN
 app_id: opencpn
-version: 5.12.4-5
+version: 5.12.4-6
 upstream_version: 5.12.4
 description: Open source chart plotter and navigation software
 long_description: |
@@ -36,7 +36,7 @@ depends:
 web_ui:
   enabled: true
   path: /
-  port: 3021
+  port: 3001  # Internal selkies-gstreamer port (uses HTTPS internally)
   protocol: https
   visible: true
 routing:
@@ -47,5 +47,3 @@ layout:
   priority: 50
   width: 2
   height: 2
-default_config:
-  OPENCPN_PORT: "3021"
