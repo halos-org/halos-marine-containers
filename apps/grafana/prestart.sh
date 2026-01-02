@@ -46,16 +46,16 @@ redirect_uris:
   - 'https://grafana.${HALOS_DOMAIN}/login/generic_oauth'
 scopes: [openid, profile, email, groups]
 consent_mode: implicit
-require_pkce: true
-pkce_challenge_method: S256
 token_endpoint_auth_method: client_secret_basic
+# Note: PKCE is enforced client-side via GF_AUTH_GENERIC_OAUTH_USE_PKCE=true
 EOF
     echo "OIDC client snippet installed to ${OIDC_CLIENT_SNIPPET}"
     echo "NOTE: Restart Authelia to pick up the new OIDC client"
 fi
 
 # Ensure data directory exists and has correct ownership (Grafana runs as UID 472)
+# Note: Only chown the data subdir, not the oidc-secret which should remain root-owned
 mkdir -p "${CONTAINER_DATA_ROOT}/data"
-chown -R 472:472 "${CONTAINER_DATA_ROOT}"
+chown -R 472:472 "${CONTAINER_DATA_ROOT}/data"
 
 echo "Grafana prestart complete"
