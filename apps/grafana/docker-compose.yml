@@ -4,34 +4,12 @@ services:
     container_name: grafana
     user: "472"
     restart: unless-stopped
-    extra_hosts:
-      # Allow Grafana to resolve auth subdomain for OIDC (mDNS doesn't work in containers)
-      - "auth.${HALOS_DOMAIN}:host-gateway"
     environment:
-      # Server URL for OAuth redirects
-      - GF_SERVER_ROOT_URL=https://grafana.${HALOS_DOMAIN}
-      # OAuth configuration for Authelia SSO
-      - GF_AUTH_GENERIC_OAUTH_ENABLED=true
-      - GF_AUTH_GENERIC_OAUTH_NAME=HaLOS SSO
-      - GF_AUTH_GENERIC_OAUTH_ICON=signin
-      - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana
-      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET}
-      - GF_AUTH_GENERIC_OAUTH_SCOPES=openid profile email groups
-      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://auth.${HALOS_DOMAIN}/api/oidc/authorization
-      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://auth.${HALOS_DOMAIN}/api/oidc/token
-      - GF_AUTH_GENERIC_OAUTH_API_URL=https://auth.${HALOS_DOMAIN}/api/oidc/userinfo
-      - GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH=preferred_username
-      - GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH=groups
-      - GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH=name
-      - GF_AUTH_GENERIC_OAUTH_USE_PKCE=true
-      - GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN=true
-      # SECURITY: Disables TLS verification for ALL Go HTTPS requests.
-      # Required for self-signed Traefik certs. Acceptable for local-only device.
-      - GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE=true
-      - GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
-      # Role mapping: Authelia 'admins' group -> Grafana Admin role
-      - "GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(groups[*], 'admins') && 'Admin' || 'Viewer'"
-      - GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN=false
+      # Enable auth proxy to accept X-WEBAUTH-USER header from ForwardAuth
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: "X-WEBAUTH-USER"
+      GF_AUTH_PROXY_HEADER_PROPERTY: "username"
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
     logging:
       driver: journald
       options:
