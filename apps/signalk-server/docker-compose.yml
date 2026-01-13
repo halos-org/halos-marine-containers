@@ -1,7 +1,7 @@
 
 services:
   signalk-server:
-    image: signalk/signalk-server:sha-90d6c6c-24.x
+    image: ghcr.io/hatlabs/signalk-server:oidc-test
     container_name: signalk-server
     restart: unless-stopped
     logging:
