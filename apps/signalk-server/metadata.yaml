@@ -1,7 +1,7 @@
 name: Signal K Server
 app_id: signalk-server
-version: 2.19.0-beta.4-2
-upstream_version: 2.19.0-beta.4
+version: 2.19.2~1.90d6c6c-2
+upstream_version: 2.19.2~1.90d6c6c
 description: Signal K server for marine data processing and routing
 long_description: |
   Signal K is a modern and open data format for marine use. A Signal K server
