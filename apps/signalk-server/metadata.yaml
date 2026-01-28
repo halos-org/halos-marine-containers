@@ -28,7 +28,7 @@ tags:
 debian_section: net
 architecture: all
 depends:
-  - docker-ce (>= 20.10) | docker.io (>= 20.10)
+  - docker.io (>= 20.10) | docker-ce (>= 20.10)
   - python3-bcrypt
 web_ui:
   enabled: true

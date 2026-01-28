@@ -2,7 +2,7 @@
 
 **Status**: Draft
 **Date**: 2025-11-11
-**Last Updated**: 2025-11-11
+**Last Updated**: 2026-01-28
 
 ## Overview
 
@@ -175,7 +175,7 @@ Required metadata describing the application:
   "debian_section": "net",
   "architecture": "arm64",
   "depends": [
-    "docker-ce (>= 20.10) | docker.io (>= 20.10)"
+    "docker.io (>= 20.10) | docker-ce (>= 20.10)"
   ],
   "web_ui": {
     "enabled": true,
@@ -464,7 +464,7 @@ The `.github/workflows/build.yml` workflow:
 All container app packages directly depend on Docker:
 
 ```
-Depends: docker-ce (>= 20.10) | docker.io (>= 20.10)
+Depends: docker.io (>= 20.10) | docker-ce (>= 20.10)
 ```
 
 This can be refined later with:
