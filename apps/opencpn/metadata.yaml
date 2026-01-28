@@ -32,7 +32,7 @@ tags:
 debian_section: graphics
 architecture: all
 depends:
-  - docker-ce (>= 20.10) | docker.io (>= 20.10)
+  - docker.io (>= 20.10) | docker-ce (>= 20.10)
 web_ui:
   enabled: true
   path: /
