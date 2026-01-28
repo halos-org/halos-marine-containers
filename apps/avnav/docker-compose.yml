@@ -16,6 +16,7 @@ services:
     volumes:
       - ${CONTAINER_DATA_ROOT}/data:/var/lib/avnav
       - /dev:/dev
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
     environment:
       - UID=1000
       - GID=1000
