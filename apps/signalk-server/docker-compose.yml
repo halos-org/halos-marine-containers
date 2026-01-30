@@ -1,7 +1,7 @@
 
 services:
   signalk-server:
-    image: signalk/signalk-server:v2.20.0
+    image: signalk/signalk-server:v2.20.2
     container_name: signalk-server
     restart: unless-stopped
     logging:
