@@ -40,7 +40,7 @@ if [ ! -f "${SECURITY_FILE}" ]; then
       "password": "${HASHED_PASSWORD}"
     }
   ],
-  "allow_readonly": false,
+  "allow_readonly": true,
   "secretKey": "${SECRET_KEY}"
 }
 EOF
