@@ -74,6 +74,8 @@ Individual apps in `apps/` have their own versions in `metadata.yaml`. These are
 - **`.github/scripts/calculate-revision.sh`**: Query git tags to find next N
 - **`.github/scripts/generate-changelog.sh`**: No-op (preserves committed changelog)
 
+**CI Enforcement**: PRs that change app files in `apps/<app>/` must include a bump to the `version` field in `apps/<app>/metadata.yaml`, or CI will fail. Changes outside `apps/` that affect the package also require a VERSION file bump.
+
 ## What This Repository Contains
 
 **Two things in one repository**:
