@@ -40,10 +40,10 @@ if command -v uvx >/dev/null 2>&1; then
         TOOLS_SOURCE="$TOOLS_PATH"
         echo "Using local container-packaging-tools from: $TOOLS_PATH"
     elif [ -n "$TOOLS_REF" ]; then
-        TOOLS_SOURCE="git+https://github.com/hatlabs/container-packaging-tools.git@${TOOLS_REF}"
+        TOOLS_SOURCE="git+https://github.com/halos-org/container-packaging-tools.git@${TOOLS_REF}"
         echo "Using container-packaging-tools ref: $TOOLS_REF"
     else
-        TOOLS_SOURCE="git+https://github.com/hatlabs/container-packaging-tools.git"
+        TOOLS_SOURCE="git+https://github.com/halos-org/container-packaging-tools.git"
         echo "Using container-packaging-tools from main branch"
     fi
 

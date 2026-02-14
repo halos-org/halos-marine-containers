@@ -33,7 +33,7 @@ For development with AI assistants, use the halos-distro workspace for full cont
 
 ```bash
 # Clone the workspace
-git clone https://github.com/hatlabs/halos-distro.git
+git clone https://github.com/halos-org/halos-distro.git
 cd halos-distro
 
 # Get all sub-repositories including halos-marine-containers
@@ -87,9 +87,9 @@ ls build/*.deb
 
 ## Related Repositories
 
-- [halos-distro](https://github.com/hatlabs/halos-distro) - HaLOS workspace and planning
-- [cockpit-apt](https://github.com/hatlabs/cockpit-apt) - APT package manager with store filtering
-- [container-packaging-tools](https://github.com/hatlabs/container-packaging-tools) - Package generation tooling
+- [halos-distro](https://github.com/halos-org/halos-distro) - HaLOS workspace and planning
+- [cockpit-apt](https://github.com/halos-org/cockpit-apt) - APT package manager with store filtering
+- [container-packaging-tools](https://github.com/halos-org/container-packaging-tools) - Package generation tooling
 - [apt.hatlabs.fi](https://github.com/hatlabs/apt.hatlabs.fi) - APT repository infrastructure
 
 ## License

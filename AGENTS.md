@@ -8,7 +8,7 @@ This repository should be used as part of the halos-distro workspace for AI-assi
 
 ```bash
 # Clone workspace and all repos
-git clone https://github.com/hatlabs/halos-distro.git
+git clone https://github.com/halos-org/halos-distro.git
 cd halos-distro
 ./run repos:clone
 ```
@@ -220,5 +220,5 @@ For testing that invalid authentication attempts are properly rejected (malforme
 ## Related
 
 - **Parent**: [../AGENTS.md](../AGENTS.md) - Workspace documentation
-- **Tooling**: [container-packaging-tools](https://github.com/hatlabs/container-packaging-tools)
-- **UI**: [cockpit-apt](https://github.com/hatlabs/cockpit-apt)
+- **Tooling**: [container-packaging-tools](https://github.com/halos-org/container-packaging-tools)
+- **UI**: [cockpit-apt](https://github.com/halos-org/cockpit-apt)

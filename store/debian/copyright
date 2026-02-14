@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: marine-container-store
 Upstream-Contact: Hat Labs <info@hatlabs.fi>
-Source: https://github.com/hatlabs/halos-marine-containers
+Source: https://github.com/halos-org/halos-marine-containers
 
 Files: *
 Copyright: 2025 Hat Labs

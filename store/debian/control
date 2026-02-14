@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Hat Labs <info@hatlabs.fi>
 Build-Depends: debhelper-compat (= 13)
 Standards-Version: 4.6.0
-Homepage: https://github.com/hatlabs/halos-marine-containers
+Homepage: https://github.com/halos-org/halos-marine-containers
 
 Package: marine-container-store
 Architecture: all

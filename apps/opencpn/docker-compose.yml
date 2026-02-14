@@ -1,6 +1,6 @@
 services:
   opencpn:
-    image: ghcr.io/hatlabs/opencpn-docker:5.12.4
+    image: ghcr.io/halos-org/opencpn-docker:5.12.4
     container_name: opencpn
     restart: unless-stopped
     logging:

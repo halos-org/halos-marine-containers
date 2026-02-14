@@ -92,8 +92,8 @@ sudo apt install marine-container-store
 ### Development
 
 For development setup and build commands, see:
-- [README.md](https://github.com/hatlabs/halos-marine-containers/blob/main/README.md) - Installation and usage
-- [CLAUDE.md](https://github.com/hatlabs/halos-marine-containers/blob/main/CLAUDE.md) - Development guide
+- [README.md](https://github.com/halos-org/halos-marine-containers/blob/main/README.md) - Installation and usage
+- [CLAUDE.md](https://github.com/halos-org/halos-marine-containers/blob/main/CLAUDE.md) - Development guide
 EOF
     ;;
 
@@ -127,8 +127,8 @@ sudo apt install marine-container-store
 ### Development
 
 For development setup and build commands, see:
-- [README.md](https://github.com/hatlabs/halos-marine-containers/blob/main/README.md) - Installation and usage
-- [CLAUDE.md](https://github.com/hatlabs/halos-marine-containers/blob/main/CLAUDE.md) - Development guide
+- [README.md](https://github.com/halos-org/halos-marine-containers/blob/main/README.md) - Installation and usage
+- [CLAUDE.md](https://github.com/halos-org/halos-marine-containers/blob/main/CLAUDE.md) - Development guide
 EOF
     ;;
 
