@@ -1,7 +1,7 @@
 name: Grafana
 app_id: grafana
-version: 12.3.2-1
-upstream_version: 12.3.2
+version: 12.3.3-1
+upstream_version: 12.3.3
 description: Data visualization and monitoring platform
 long_description: |
   Grafana is an open-source platform for monitoring and observability. Create
