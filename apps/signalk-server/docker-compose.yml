@@ -33,6 +33,7 @@ services:
       - ${CONTAINER_DATA_ROOT}/data:/home/node/.signalk
       - /dev:/dev
       - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
+      - /run/halpid/halpid.sock:/run/halpid/halpid.sock
     privileged: true
     security_opt:
       - no-new-privileges:false

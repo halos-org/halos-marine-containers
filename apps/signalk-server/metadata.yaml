@@ -1,6 +1,6 @@
 name: Signal K Server
 app_id: signalk-server
-version: 2.22.0-1
+version: 2.22.0-2
 upstream_version: 2.22.0
 description: Signal K server for marine data processing and routing
 long_description: |
