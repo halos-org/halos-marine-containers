@@ -15,7 +15,7 @@ long_description: |
   - Dashboard sharing and templating
   - Plugin ecosystem
 homepage: https://grafana.com/
-maintainer: Hat Labs <support@hatlabs.fi>
+maintainer: Matti Airas <matti.airas@hatlabs.fi>
 license: AGPL-3.0
 tags:
   - role::container-app

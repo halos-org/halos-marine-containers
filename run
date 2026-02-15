@@ -168,7 +168,7 @@ marine-container-store (${new_version}-1) stable; urgency=medium
 
   * Version bump to ${new_version}
 
- -- Hat Labs <info@hatlabs.fi>  $(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')
+ -- Matti Airas <matti.airas@hatlabs.fi>  $(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')
 
 CHANGELOG
   cat store/debian/changelog >> "$temp_file"

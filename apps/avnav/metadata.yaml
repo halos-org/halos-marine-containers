@@ -17,7 +17,7 @@ long_description: |
   - NMEA data display and logging
   - Plugin system for extensions
 homepage: https://www.wellenvogel.net/software/avnav/docs/beschreibung.html
-maintainer: Hat Labs <support@hatlabs.fi>
+maintainer: Matti Airas <matti.airas@hatlabs.fi>
 license: GPL-3.0
 tags:
   - role::container-app

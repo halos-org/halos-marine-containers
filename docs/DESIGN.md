@@ -163,7 +163,7 @@ Required metadata describing the application:
     "screenshot1.png",
     "screenshot2.png"
   ],
-  "maintainer": "Hat Labs <support@hatlabs.fi>",
+  "maintainer": "Matti Airas <matti.airas@hatlabs.fi>",
   "license": "Apache-2.0",
   "tags": [
     "role::container-app",
