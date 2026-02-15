@@ -29,12 +29,12 @@ All packages are published to apt.hatlabs.fi.
 
 ## Agentic Coding Setup (Claude Code, GitHub Copilot, etc.)
 
-For development with AI assistants, use the halos-distro workspace for full context:
+For development with AI assistants, use the halos workspace for full context:
 
 ```bash
 # Clone the workspace
-git clone https://github.com/halos-org/halos-distro.git
-cd halos-distro
+git clone https://github.com/halos-org/halos.git
+cd halos
 
 # Get all sub-repositories including halos-marine-containers
 ./run repos:clone
@@ -43,7 +43,7 @@ cd halos-distro
 # Claude Code gets full context across all repos
 ```
 
-See `halos-distro/docs/` for development workflows:
+See `halos/docs/` for development workflows:
 - `LIFE_WITH_CLAUDE.md` - Quick start guide
 - `IMPLEMENTATION_CHECKLIST.md` - Development checklist
 - `DEVELOPMENT_WORKFLOW.md` - Detailed workflows
@@ -87,7 +87,7 @@ ls build/*.deb
 
 ## Related Repositories
 
-- [halos-distro](https://github.com/halos-org/halos-distro) - HaLOS workspace and planning
+- [halos](https://github.com/halos-org/halos) - HaLOS workspace and planning
 - [cockpit-apt](https://github.com/halos-org/cockpit-apt) - APT package manager with store filtering
 - [container-packaging-tools](https://github.com/halos-org/container-packaging-tools) - Package generation tooling
 - [apt.hatlabs.fi](https://github.com/hatlabs/apt.hatlabs.fi) - APT repository infrastructure
