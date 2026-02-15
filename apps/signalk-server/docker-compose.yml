@@ -33,6 +33,8 @@ services:
       - ${CONTAINER_DATA_ROOT}/data:/home/node/.signalk
       - /dev:/dev
       - /run:/run
+    group_add:
+      - "960"  # halpid group for /run/halpid/halpid.sock access
     privileged: true
     security_opt:
       - no-new-privileges:false
