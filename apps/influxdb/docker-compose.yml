@@ -2,6 +2,7 @@ services:
   influxdb:
     image: influxdb:2.8.0
     container_name: influxdb
+    init: true
     restart: unless-stopped
     logging:
       driver: journald

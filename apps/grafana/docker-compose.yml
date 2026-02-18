@@ -2,6 +2,7 @@ services:
   grafana:
     image: grafana/grafana:12.3.3
     container_name: grafana
+    init: true
     user: "472"
     restart: unless-stopped
     extra_hosts:

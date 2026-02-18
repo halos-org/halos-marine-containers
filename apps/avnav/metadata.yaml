@@ -1,6 +1,6 @@
 name: AvNav
 app_id: avnav
-version: 20251028-11
+version: 20251028-12
 upstream_version: "20251028"
 description: Touch-optimized chart plotter for sailing and motor yachts
 long_description: |

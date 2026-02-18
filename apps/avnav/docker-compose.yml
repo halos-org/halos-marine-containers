@@ -2,6 +2,7 @@ services:
   avnav:
     image: xfreex/avnav-stable:20251028
     container_name: avnav
+    init: true
     restart: unless-stopped
     logging:
       driver: journald
