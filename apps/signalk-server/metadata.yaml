@@ -1,6 +1,6 @@
 name: Signal K Server
 app_id: signalk-server
-version: 2.22.1-2
+version: 2.22.1-3
 upstream_version: 2.22.1
 description: Signal K server for marine data processing and routing
 long_description: |
@@ -48,7 +48,6 @@ routing:
     mode: none
   host_port: 3000
 default_config:
-  SIGNALK_PORT: "3000"
   # OIDC Configuration - enabled by default for SSO integration
   SIGNALK_OIDC_ENABLED: "true"
   SIGNALK_OIDC_ISSUER: "https://auth.${HALOS_DOMAIN}"

@@ -1,15 +1,3 @@
 version: "1.0"
 
-groups:
-  - id: network
-    label: Network Settings
-    description: Port and network configuration
-    fields:
-      - id: SIGNALK_PORT
-        label: HTTP Port
-        type: integer
-        default: 3000
-        min: 1024
-        max: 65535
-        required: true
-        description: Port for web interface and API
+groups: []
