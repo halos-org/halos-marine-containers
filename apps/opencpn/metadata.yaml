@@ -1,6 +1,6 @@
 name: OpenCPN
 app_id: opencpn
-version: 5.12.4-10
+version: 5.12.4-11
 upstream_version: 5.12.4
 description: Open source chart plotter and navigation software
 long_description: |
@@ -29,6 +29,7 @@ tags:
   - interface::web
   - use::routing
   - works-with::maps
+  - status::experimental
 debian_section: graphics
 architecture: all
 depends:
