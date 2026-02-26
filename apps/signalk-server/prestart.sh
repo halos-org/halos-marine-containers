@@ -105,41 +105,7 @@ EOF
     echo "NOTE: Restart Authelia to pick up the new OIDC client"
 fi
 
-# Create settings.json with reverse proxy settings and gpsd provider if it doesn't exist
-# Signal K runs behind Traefik, so we need ssl=false and trustProxy=true
-# gpsd provider connects to the system gpsd daemon for GPS data
-SETTINGS_FILE="${SIGNALK_DATA}/settings.json"
-if [ ! -f "${SETTINGS_FILE}" ]; then
-    echo "Creating settings.json with reverse proxy settings and gpsd provider..."
-    cat > "${SETTINGS_FILE}" << EOF
-{
-  "ssl": false,
-  "trustProxy": true,
-  "pipedProviders": [
-    {
-      "id": "gpsd",
-      "pipeElements": [
-        {
-          "type": "providers/gpsd",
-          "options": {
-            "hostname": "localhost",
-            "port": 2947,
-            "noDataReceivedTimeout": 30,
-            "reconnectInterval": 15
-          }
-        },
-        {
-          "type": "providers/nmea0183-signalk"
-        }
-      ],
-      "enabled": true
-    }
-  ]
-}
-EOF
-    chown 1000:1000 "${SETTINGS_FILE}"
-fi
-
 # Ensure data directory is owned by node user (UID 1000)
+# settings.json is installed via default-data/ at package install time
 # The container runs as node:node, but prestart runs as root
 chown -R 1000:1000 "${CONTAINER_DATA_ROOT}"

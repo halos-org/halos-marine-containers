@@ -1,0 +1,24 @@
+{
+  "ssl": false,
+  "trustProxy": true,
+  "pipedProviders": [
+    {
+      "id": "gpsd",
+      "pipeElements": [
+        {
+          "type": "providers/gpsd",
+          "options": {
+            "hostname": "localhost",
+            "port": 2947,
+            "noDataReceivedTimeout": 30,
+            "reconnectInterval": 15
+          }
+        },
+        {
+          "type": "providers/nmea0183-signalk"
+        }
+      ],
+      "enabled": true
+    }
+  ]
+}
