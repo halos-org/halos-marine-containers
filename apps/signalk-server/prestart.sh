@@ -105,38 +105,54 @@ EOF
     echo "NOTE: Restart Authelia to pick up the new OIDC client"
 fi
 
-# Create settings.json with reverse proxy settings and gpsd provider if it doesn't exist
+# Create settings.json with reverse proxy settings and providers if it doesn't exist
 # Signal K runs behind Traefik, so we need ssl=false and trustProxy=true
-# gpsd provider connects to the system gpsd daemon for GPS data
+# The gpsd provider is always included; additional providers are loaded from
+# /etc/halos/signalk-providers.d/*.json (e.g., HALPI2 RS-485 on ttyAMA4)
 SETTINGS_FILE="${SIGNALK_DATA}/settings.json"
+PROVIDERS_DIR="/etc/halos/signalk-providers.d"
 if [ ! -f "${SETTINGS_FILE}" ]; then
-    echo "Creating settings.json with reverse proxy settings and gpsd provider..."
-    cat > "${SETTINGS_FILE}" << EOF
-{
-  "ssl": false,
-  "trustProxy": true,
-  "pipedProviders": [
-    {
-      "id": "gpsd",
-      "pipeElements": [
+    echo "Creating settings.json with reverse proxy settings and providers..."
+    python3 - "${SETTINGS_FILE}" "${PROVIDERS_DIR}" << 'PYEOF'
+import json, glob, sys, os
+
+settings_file = sys.argv[1]
+providers_dir = sys.argv[2]
+
+gpsd_provider = {
+    "id": "gpsd",
+    "pipeElements": [
         {
-          "type": "providers/gpsd",
-          "options": {
-            "hostname": "localhost",
-            "port": 2947,
-            "noDataReceivedTimeout": 30,
-            "reconnectInterval": 15
-          }
+            "type": "providers/gpsd",
+            "options": {
+                "hostname": "localhost",
+                "port": 2947,
+                "noDataReceivedTimeout": 30,
+                "reconnectInterval": 15,
+            },
         },
-        {
-          "type": "providers/nmea0183-signalk"
-        }
-      ],
-      "enabled": true
-    }
-  ]
+        {"type": "providers/nmea0183-signalk"},
+    ],
+    "enabled": True,
 }
-EOF
+
+providers = [gpsd_provider]
+
+if os.path.isdir(providers_dir):
+    for path in sorted(glob.glob(os.path.join(providers_dir, "*.json"))):
+        with open(path) as f:
+            providers.append(json.load(f))
+        print(f"  Added provider snippet: {path}")
+
+settings = {
+    "ssl": False,
+    "trustProxy": True,
+    "pipedProviders": providers,
+}
+
+with open(settings_file, "w") as f:
+    json.dump(settings, f, indent=2)
+PYEOF
     chown 1000:1000 "${SETTINGS_FILE}"
 fi
 
