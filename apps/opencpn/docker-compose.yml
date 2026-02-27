@@ -2,7 +2,7 @@ services:
   opencpn:
     image: ghcr.io/halos-org/opencpn-docker:5.12.4
     container_name: opencpn
-    init: true
+    init: false  # s6-overlay must be PID 1; tini would break it
     restart: unless-stopped
     logging:
       driver: journald
