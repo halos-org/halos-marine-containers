@@ -118,9 +118,9 @@ if [[ -z "$DOMAIN" ]]; then
     exit 1
 fi
 
-# Set up URLs
-SK_URL="https://signalk.${DOMAIN}"
-AUTH_URL="https://auth.${DOMAIN}"
+# Set up URLs (port-based routing uses path prefixes)
+SK_URL="https://${DOMAIN}/signalk-server"
+AUTH_URL="https://${DOMAIN}/auth"
 
 # Set up output directory
 if [[ -z "$OUTPUT_DIR" ]]; then

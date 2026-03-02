@@ -11,9 +11,8 @@ services:
         tag: "{{.Name}}"
     network_mode: host
     extra_hosts:
-      - "auth.${HALOS_DOMAIN}:127.0.0.1"
+      # Signal K uses host networking so resolves via host DNS/mDNS
       - "${HALOS_DOMAIN}:127.0.0.1"
-      - "signalk.${HALOS_DOMAIN}:127.0.0.1"
     environment:
       - EXTERNALHOST=${EXTERNALHOST:-}
       - EXTERNALPORT=${EXTERNALPORT:-}

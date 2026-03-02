@@ -1,6 +1,6 @@
 name: Grafana
 app_id: grafana
-version: 12.3.3-2
+version: 12.3.3-3
 upstream_version: 12.3.3
 description: Data visualization and monitoring platform
 long_description: |
@@ -38,7 +38,6 @@ web_ui:
   protocol: http
   visible: true
 routing:
-  subdomain: grafana
   auth:
     mode: none  # Grafana handles OAuth natively via prestart.sh OIDC registration
 layout:

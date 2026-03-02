@@ -71,40 +71,45 @@ fi
 # OIDC settings expand HALOS_DOMAIN since systemd EnvironmentFile doesn't
 RUNTIME_ENV_DIR="/run/container-apps/marine-signalk-server-container"
 mkdir -p "${RUNTIME_ENV_DIR}"
+
+# Read external port from port registry (assigned by configure-container-routing)
+EXTERNAL_PORT=""
+PORT_REGISTRY="/etc/halos/port-registry"
+if [ -f "${PORT_REGISTRY}" ]; then
+    EXTERNAL_PORT=$(grep "^signalk-server=" "${PORT_REGISTRY}" 2>/dev/null | cut -d= -f2)
+fi
+
 # EXTERNALHOST strips .local suffix — Signal K's mDNS library (dnssd) appends it
 cat > "${RUNTIME_ENV_DIR}/runtime.env" << EOF
 HALOS_DOMAIN=${HALOS_DOMAIN}
-EXTERNALHOST=signalk.${HALOS_DOMAIN%.local}
-EXTERNALPORT=443
+EXTERNALHOST=${HALOS_DOMAIN%.local}
+EXTERNALPORT=${EXTERNAL_PORT:-443}
 SIGNALK_OIDC_CLIENT_SECRET=$(cat "${OIDC_SECRET_FILE}")
-SIGNALK_OIDC_ISSUER=https://auth.${HALOS_DOMAIN}
-SIGNALK_OIDC_REDIRECT_URI=https://signalk.${HALOS_DOMAIN}/signalk/v1/auth/oidc/callback
+SIGNALK_OIDC_ISSUER=https://${HALOS_DOMAIN}/auth/
+SIGNALK_OIDC_REDIRECT_URI=https://${HALOS_DOMAIN}/signalk-server/signalk/v1/auth/oidc/callback
 EOF
 chmod 600 "${RUNTIME_ENV_DIR}/runtime.env"
 
 # Install OIDC client snippet for Authelia
+# Always written (not guarded) so redirect URIs stay current across upgrades
 OIDC_CLIENTS_DIR="/etc/halos/oidc-clients.d"
 OIDC_CLIENT_SNIPPET="${OIDC_CLIENTS_DIR}/signalk.yml"
-if [ ! -f "${OIDC_CLIENT_SNIPPET}" ]; then
-    echo "Installing OIDC client snippet for Authelia..."
-    mkdir -p "${OIDC_CLIENTS_DIR}"
-    cat > "${OIDC_CLIENT_SNIPPET}" << 'EOF'
+mkdir -p "${OIDC_CLIENTS_DIR}"
+cat > "${OIDC_CLIENT_SNIPPET}" << 'EOF'
 # Signal K OIDC Client Snippet
 # Installed by marine-signalk-server-container prestart.sh
 # Authelia's prestart script merges all snippets into oidc-clients.yml
+# Redirect URI uses path redirect (/signalk-server/) which 302s to the port URL
 
 client_id: signalk
 client_name: Signal K Server
 client_secret_file: /var/lib/container-apps/marine-signalk-server-container/data/oidc-secret
 redirect_uris:
-  - 'https://signalk.${HALOS_DOMAIN}/signalk/v1/auth/oidc/callback'
+  - 'https://${HALOS_DOMAIN}/signalk-server/signalk/v1/auth/oidc/callback'
 scopes: [openid, profile, email, groups]
 consent_mode: implicit
 token_endpoint_auth_method: client_secret_post
 EOF
-    echo "OIDC client snippet installed to ${OIDC_CLIENT_SNIPPET}"
-    echo "NOTE: Restart Authelia to pick up the new OIDC client"
-fi
 
 # Ensure data directory is owned by node user (UID 1000)
 # settings.json is installed via default-data/ at package install time

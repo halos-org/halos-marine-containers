@@ -212,7 +212,7 @@ For testing that invalid authentication attempts are properly rejected (malforme
 
 ```bash
 # From the signalk-server directory
-./tools/test-auth-negative.sh -u https://signalk.myhostname.local -k -v
+./tools/test-auth-negative.sh -u https://myhostname.local/signalk-server -k -v
 
 # See signalk-server/tools/test-auth-negative.sh --help for options
 ```
