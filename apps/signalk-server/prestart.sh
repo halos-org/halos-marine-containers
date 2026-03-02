@@ -71,9 +71,10 @@ fi
 # OIDC settings expand HALOS_DOMAIN since systemd EnvironmentFile doesn't
 RUNTIME_ENV_DIR="/run/container-apps/marine-signalk-server-container"
 mkdir -p "${RUNTIME_ENV_DIR}"
+# EXTERNALHOST strips .local suffix — Signal K's mDNS library (dnssd) appends it
 cat > "${RUNTIME_ENV_DIR}/runtime.env" << EOF
 HALOS_DOMAIN=${HALOS_DOMAIN}
-EXTERNALHOST=signalk.${HALOS_DOMAIN}
+EXTERNALHOST=signalk.${HALOS_DOMAIN%.local}
 EXTERNALPORT=443
 SIGNALK_OIDC_CLIENT_SECRET=$(cat "${OIDC_SECRET_FILE}")
 SIGNALK_OIDC_ISSUER=https://auth.${HALOS_DOMAIN}
