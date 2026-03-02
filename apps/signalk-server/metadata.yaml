@@ -49,7 +49,7 @@ routing:
 default_config:
   # OIDC Configuration - enabled by default for SSO integration
   SIGNALK_OIDC_ENABLED: "true"
-  SIGNALK_OIDC_ISSUER: "https://${HALOS_DOMAIN}/auth/"
+  SIGNALK_OIDC_ISSUER: "https://${HALOS_DOMAIN}/auth"
   SIGNALK_OIDC_CLIENT_ID: "signalk"
   SIGNALK_OIDC_CLIENT_SECRET: ""
   SIGNALK_OIDC_REDIRECT_URI: "https://${HALOS_DOMAIN}/signalk-server/signalk/v1/auth/oidc/callback"
