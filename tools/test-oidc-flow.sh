@@ -120,7 +120,7 @@ fi
 
 # Set up URLs (port-based routing uses path prefixes)
 SK_URL="https://${DOMAIN}/signalk-server"
-AUTH_URL="https://${DOMAIN}/auth"
+AUTH_URL="https://${DOMAIN}/sso"
 
 # Set up output directory
 if [[ -z "$OUTPUT_DIR" ]]; then

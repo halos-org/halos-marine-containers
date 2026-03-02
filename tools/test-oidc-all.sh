@@ -67,7 +67,7 @@ fi
 
 # URLs (port-based routing uses path prefixes)
 SK_URL="https://${DOMAIN}/signalk-server"
-AUTH_URL="https://${DOMAIN}/auth"
+AUTH_URL="https://${DOMAIN}/sso"
 
 CURL_OPTS=(-s -k)
 
@@ -129,7 +129,7 @@ HTTP_CODE=$(curl "${CURL_OPTS[@]}" -c cookies.txt -D headers.txt \
 LOCATION=$(grep -i "^location:" headers.txt 2>/dev/null | head -1 | cut -d' ' -f2- | tr -d '\r\n')
 
 test_result "2.1 OIDC login returns redirect (302)" "$( [[ "$HTTP_CODE" == "302" ]] && echo true || echo false )"
-test_result "2.2 Redirect points to Authelia" "$( [[ "$LOCATION" == *"${DOMAIN}/auth"* ]] && echo true || echo false )"
+test_result "2.2 Redirect points to Authelia" "$( [[ "$LOCATION" == *"${DOMAIN}/sso"* ]] && echo true || echo false )"
 test_result "2.3 OIDC_STATE cookie is set" "$( grep -q "OIDC_STATE" cookies.txt && echo true || echo false )"
 
 #######################################

@@ -77,7 +77,7 @@ fi
 
 # URLs (port-based routing uses path prefixes)
 SK_URL="https://${DOMAIN}/signalk-server"
-AUTH_URL="https://${DOMAIN}/auth"
+AUTH_URL="https://${DOMAIN}/sso"
 HOMARR_URL="https://${DOMAIN}"
 
 # Output directory
