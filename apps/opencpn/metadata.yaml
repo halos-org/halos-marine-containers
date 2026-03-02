@@ -1,6 +1,6 @@
 name: OpenCPN
 app_id: opencpn
-version: 5.12.4-12
+version: 5.12.4-13
 upstream_version: 5.12.4
 description: Open source chart plotter and navigation software
 long_description: |
@@ -41,7 +41,6 @@ web_ui:
   protocol: https
   visible: true
 routing:
-  subdomain: opencpn
   auth:
     mode: none
 layout:

@@ -6,11 +6,13 @@ services:
     user: "472"
     restart: unless-stopped
     extra_hosts:
-      # Allow Grafana to resolve auth subdomain for OIDC (mDNS doesn't work in containers)
-      - "auth.${HALOS_DOMAIN}:host-gateway"
+      # Allow Grafana to resolve HALOS_DOMAIN for OIDC (mDNS doesn't work in containers)
+      - "${HALOS_DOMAIN}:host-gateway"
     environment:
-      # Server URL for OAuth redirects
-      - GF_SERVER_ROOT_URL=https://grafana.${HALOS_DOMAIN}
+      # Server URL for OAuth redirects — uses port URL when available
+      - GF_SERVER_ROOT_URL=https://${HALOS_DOMAIN}:${HALOS_EXTERNAL_PORT:-443}
+      # Override OAuth redirect URI to use path redirect (survives 302 to port URL)
+      - GF_AUTH_GENERIC_OAUTH_REDIRECT_URL=https://${HALOS_DOMAIN}/grafana/login/generic_oauth
       # OAuth configuration for Authelia SSO
       - GF_AUTH_GENERIC_OAUTH_ENABLED=true
       - GF_AUTH_GENERIC_OAUTH_NAME=HaLOS SSO
@@ -18,9 +20,9 @@ services:
       - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana
       - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET}
       - GF_AUTH_GENERIC_OAUTH_SCOPES=openid profile email groups
-      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://auth.${HALOS_DOMAIN}/api/oidc/authorization
-      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://auth.${HALOS_DOMAIN}/api/oidc/token
-      - GF_AUTH_GENERIC_OAUTH_API_URL=https://auth.${HALOS_DOMAIN}/api/oidc/userinfo
+      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://${HALOS_DOMAIN}/auth/api/oidc/authorization
+      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://${HALOS_DOMAIN}/auth/api/oidc/token
+      - GF_AUTH_GENERIC_OAUTH_API_URL=https://${HALOS_DOMAIN}/auth/api/oidc/userinfo
       - GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH=sub
       - GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_PATH=email
       - GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH=groups
@@ -38,7 +40,7 @@ services:
       driver: journald
       options:
         tag: "{{.Name}}"
-    # No direct port exposure - access via Traefik at grafana.{hostname}.local
+    # No direct port exposure — access via Traefik on dedicated HTTPS port
     # halos-proxy-network is auto-injected by container-packaging-tools
     volumes:
       - ${CONTAINER_DATA_ROOT}/data:/var/lib/grafana

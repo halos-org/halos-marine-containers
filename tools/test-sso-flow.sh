@@ -6,7 +6,7 @@
 # can seamlessly access Signal K without re-authenticating.
 #
 # This tests the SSO (Single Sign-On) behavior - the Authelia session should be
-# shared across all subdomains (*.<domain>).
+# shared across all apps on the same domain.
 #
 # Usage:
 #   ./test-sso-flow.sh [options]
@@ -75,9 +75,9 @@ if [[ -z "$DOMAIN" ]]; then
     exit 1
 fi
 
-# URLs
-SK_URL="https://signalk.${DOMAIN}"
-AUTH_URL="https://auth.${DOMAIN}"
+# URLs (port-based routing uses path prefixes)
+SK_URL="https://${DOMAIN}/signalk-server"
+AUTH_URL="https://${DOMAIN}/auth"
 HOMARR_URL="https://${DOMAIN}"
 
 # Output directory
@@ -144,12 +144,12 @@ if grep -q "authelia_session" cookies.txt; then
     log_success "Authelia session cookie found"
     log_verbose "Cookie domain: $COOKIE_DOMAIN"
 
-    # Check if domain allows subdomain sharing
+    # Check if cookie domain matches
     if [[ "$COOKIE_DOMAIN" == ".${DOMAIN}" ]] || [[ "$COOKIE_DOMAIN" == "${DOMAIN}" ]]; then
-        log_success "Cookie domain allows subdomain sharing: $COOKIE_DOMAIN"
+        log_success "Cookie domain matches: $COOKIE_DOMAIN"
         add_result "Step 2: PASS - Session cookie with correct domain"
     else
-        log_warn "Cookie domain may not allow subdomain sharing: $COOKIE_DOMAIN"
+        log_warn "Cookie domain mismatch: $COOKIE_DOMAIN (expected ${DOMAIN})"
         add_result "Step 2: WARN - Cookie domain: $COOKIE_DOMAIN"
     fi
 else
@@ -201,13 +201,13 @@ log_verbose "Final location: $FINAL_LOCATION"
 # Check if we need to re-authenticate (SSO failure)
 if echo "$BODY_CONTENT" | grep -qi "sign in\|login\|password" && [[ "$HTTP_CODE" == "200" ]]; then
     log_error "SSO FAILED: Authelia is showing login page instead of using existing session"
-    log_error "This means the Authelia session cookie is not being shared across subdomains"
+    log_error "This means the Authelia session cookie is not being shared"
     add_result "Step 4: FAIL - SSO not working (login page shown)"
 
     echo ""
     echo "Debugging info:"
-    echo "- Check that Authelia session domain is set to '.${DOMAIN}' (with leading dot)"
-    echo "- Verify cookies are being sent to signalk.${DOMAIN}"
+    echo "- Check that Authelia session cookie domain is set correctly"
+    echo "- Verify cookies are being sent to ${DOMAIN}"
     echo ""
     echo "Current cookies:"
     cat cookies.txt

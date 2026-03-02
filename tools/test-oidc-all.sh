@@ -65,9 +65,9 @@ if [[ -z "$DOMAIN" ]]; then
     exit 1
 fi
 
-# URLs
-SK_URL="https://signalk.${DOMAIN}"
-AUTH_URL="https://auth.${DOMAIN}"
+# URLs (port-based routing uses path prefixes)
+SK_URL="https://${DOMAIN}/signalk-server"
+AUTH_URL="https://${DOMAIN}/auth"
 
 CURL_OPTS=(-s -k)
 
@@ -129,7 +129,7 @@ HTTP_CODE=$(curl "${CURL_OPTS[@]}" -c cookies.txt -D headers.txt \
 LOCATION=$(grep -i "^location:" headers.txt 2>/dev/null | head -1 | cut -d' ' -f2- | tr -d '\r\n')
 
 test_result "2.1 OIDC login returns redirect (302)" "$( [[ "$HTTP_CODE" == "302" ]] && echo true || echo false )"
-test_result "2.2 Redirect points to Authelia" "$( [[ "$LOCATION" == *"auth.${DOMAIN}"* ]] && echo true || echo false )"
+test_result "2.2 Redirect points to Authelia" "$( [[ "$LOCATION" == *"${DOMAIN}/auth"* ]] && echo true || echo false )"
 test_result "2.3 OIDC_STATE cookie is set" "$( grep -q "OIDC_STATE" cookies.txt && echo true || echo false )"
 
 #######################################
@@ -219,8 +219,8 @@ echo "--- Test 4: SSO Session Sharing ---"
 rm -f cookies_sso.txt
 cp cookies.txt cookies_sso.txt  # Keep Authelia session
 
-# Clear Signal K cookies
-grep -v "signalk" cookies_sso.txt > cookies_sso_clean.txt || true
+# Clear Signal K session cookies, keep Authelia session
+grep -v "JAUTHENTICATION\|OIDC_STATE" cookies_sso.txt > cookies_sso_clean.txt || true
 mv cookies_sso_clean.txt cookies_sso.txt
 
 # Start OIDC flow - should use existing Authelia session
