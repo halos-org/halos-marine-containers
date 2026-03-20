@@ -84,6 +84,8 @@ cat > "${RUNTIME_ENV_DIR}/runtime.env" << EOF
 HALOS_DOMAIN=${HALOS_DOMAIN}
 EXTERNALHOST=${HALOS_DOMAIN%.local}
 EXTERNALPORT=${EXTERNAL_PORT:-443}
+# Requires upstream EXTERNALSSL support: https://github.com/SignalK/signalk-server/pull/2484
+EXTERNALSSL=1
 SIGNALK_OIDC_CLIENT_SECRET=$(cat "${OIDC_SECRET_FILE}")
 SIGNALK_OIDC_ISSUER=https://${HALOS_DOMAIN}/sso
 SIGNALK_OIDC_REDIRECT_URI=https://${HALOS_DOMAIN}/signalk-server/signalk/v1/auth/oidc/callback
