@@ -4,6 +4,7 @@
 set -e
 
 PACKAGE_NAME="marine-influxdb-container"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ETC_DIR="/etc/container-apps/${PACKAGE_NAME}"
 RUN_DIR="/run/container-apps/${PACKAGE_NAME}"
 RUNTIME_ENV="${RUN_DIR}/runtime.env"
@@ -50,6 +51,11 @@ fi
 
 # --- Password sync ---
 
+if [ -z "${CONTAINER_DATA_ROOT}" ]; then
+    echo "ERROR: CONTAINER_DATA_ROOT is not set"
+    exit 1
+fi
+
 ADMIN_USER="${INFLUXDB_ADMIN_USER:-admin}"
 ADMIN_PASSWORD="${INFLUXDB_ADMIN_PASSWORD:-halos-default}"
 ADMIN_TOKEN="${INFLUXDB_ADMIN_TOKEN}"
@@ -68,8 +74,10 @@ CURRENT_HASH=$(echo -n "${ADMIN_PASSWORD}" | sha256sum | cut -d' ' -f1)
 # First restart after upgrade: create shadow, don't sync
 if [ ! -f "${SHADOW_FILE}" ]; then
     echo "Creating initial password shadow"
-    echo "${CURRENT_HASH}" > "${SHADOW_FILE}"
-    chmod 600 "${SHADOW_FILE}"
+    SHADOW_TMP=$(mktemp "${SHADOW_FILE}.XXXXXX")
+    echo "${CURRENT_HASH}" > "${SHADOW_TMP}"
+    chmod 600 "${SHADOW_TMP}"
+    mv "${SHADOW_TMP}" "${SHADOW_FILE}"
     exit 0
 fi
 
@@ -90,7 +98,11 @@ fi
 echo "Admin password changed -- syncing to InfluxDB..."
 
 TEMP_CONTAINER="influxdb-password-sync"
-INFLUXDB_IMAGE="influxdb:2.8.0"
+INFLUXDB_IMAGE=$(grep -oP 'image:\s*\K\S+' "${SCRIPT_DIR}/docker-compose.yml" | head -1)
+if [ -z "${INFLUXDB_IMAGE}" ]; then
+    echo "ERROR: Could not determine InfluxDB image from docker-compose.yml"
+    exit 1
+fi
 
 cleanup() {
     docker rm -f "${TEMP_CONTAINER}" 2>/dev/null || true
@@ -101,10 +113,13 @@ trap cleanup EXIT
 cleanup
 
 # Start temporary InfluxDB with same data volumes
-docker run -d --name "${TEMP_CONTAINER}" \
+if ! docker run -d --name "${TEMP_CONTAINER}" \
     -v "${DATA_DIR}/config:/etc/influxdb2" \
     -v "${DATA_DIR}/db:/var/lib/influxdb2" \
-    "${INFLUXDB_IMAGE}" >/dev/null
+    "${INFLUXDB_IMAGE}" >/dev/null; then
+    echo "ERROR: Failed to start temporary InfluxDB container"
+    exit 1
+fi
 
 # Wait for readiness (up to 30s)
 for i in $(seq 1 30); do
@@ -128,5 +143,7 @@ if ! docker exec "${TEMP_CONTAINER}" influx user password \
 fi
 
 echo "Admin password updated successfully"
-echo "${CURRENT_HASH}" > "${SHADOW_FILE}"
-chmod 600 "${SHADOW_FILE}"
+SHADOW_TMP=$(mktemp "${SHADOW_FILE}.XXXXXX")
+echo "${CURRENT_HASH}" > "${SHADOW_TMP}"
+chmod 600 "${SHADOW_TMP}"
+mv "${SHADOW_TMP}" "${SHADOW_FILE}"
