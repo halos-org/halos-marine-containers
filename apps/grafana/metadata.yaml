@@ -1,6 +1,6 @@
 name: Grafana
 app_id: grafana
-version: 12.4.2-2
+version: 12.4.2-3
 upstream_version: 12.4.2
 description: Data visualization and monitoring platform
 long_description: |

@@ -65,4 +65,32 @@ EOF
 mkdir -p "${CONTAINER_DATA_ROOT}/data"
 chown -R 472:472 "${CONTAINER_DATA_ROOT}/data"
 
+# --- InfluxDB datasource provisioning ---
+
+INFLUXDB_ENV="/etc/container-apps/marine-influxdb-container/env"
+PROVISIONING_DIR="${CONTAINER_DATA_ROOT}/provisioning/datasources"
+DATASOURCE_SRC="/var/lib/container-apps/marine-grafana-container/assets/influxdb-datasource.yaml"
+DATASOURCE_DST="${PROVISIONING_DIR}/influxdb.yaml"
+
+mkdir -p "${PROVISIONING_DIR}"
+
+if [ -f "${INFLUXDB_ENV}" ]; then
+    # Extract only the token — avoid sourcing the entire file
+    INFLUXDB_ADMIN_TOKEN=$(grep '^INFLUXDB_ADMIN_TOKEN=' "${INFLUXDB_ENV}" | cut -d= -f2-)
+
+    if [ -n "${INFLUXDB_ADMIN_TOKEN}" ] && [ -f "${DATASOURCE_SRC}" ]; then
+        echo "InfluxDB detected -- provisioning datasource"
+        cp "${DATASOURCE_SRC}" "${DATASOURCE_DST}"
+        # Pass token to Grafana container via runtime.env
+        echo "INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN}" >> "${RUNTIME_ENV_DIR}/runtime.env"
+    else
+        [ ! -f "${DATASOURCE_SRC}" ] && echo "WARNING: InfluxDB datasource template not found at ${DATASOURCE_SRC}"
+        rm -f "${DATASOURCE_DST}"
+    fi
+else
+    rm -f "${DATASOURCE_DST}"
+fi
+
+chown -R 472:472 "${PROVISIONING_DIR}"
+
 echo "Grafana prestart complete"
