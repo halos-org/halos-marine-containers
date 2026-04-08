@@ -35,4 +35,5 @@ groups:
         type: string
         default: halos-default-token-change-in-production
         required: true
-        description: Admin token for API access (auto-generated on first start, cannot be changed afterward)
+        readonly: true
+        description: Admin token for API access (auto-generated on first start)
