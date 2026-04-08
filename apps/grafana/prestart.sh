@@ -26,6 +26,11 @@ if [ -f "${PORT_REGISTRY}" ]; then
     EXTERNAL_PORT=$(grep "^grafana=" "${PORT_REGISTRY}" 2>/dev/null | cut -d= -f2)
 fi
 
+if [ -z "${EXTERNAL_PORT}" ]; then
+    echo "ERROR: Grafana external port not found in ${PORT_REGISTRY}"
+    exit 1
+fi
+
 # Write runtime env file with expanded HALOS_DOMAIN
 RUNTIME_ENV_DIR="/run/container-apps/marine-grafana-container"
 mkdir -p "${RUNTIME_ENV_DIR}"
@@ -37,25 +42,22 @@ EOF
 chmod 600 "${RUNTIME_ENV_DIR}/runtime.env"
 
 # Install OIDC client snippet for Authelia
-# Always written (not guarded) so redirect URIs stay current across upgrades
+# Redirect URI uses the port-based URL that Grafana derives from GF_SERVER_ROOT_URL
 OIDC_CLIENTS_DIR="/etc/halos/oidc-clients.d"
 OIDC_CLIENT_SNIPPET="${OIDC_CLIENTS_DIR}/grafana.yml"
 mkdir -p "${OIDC_CLIENTS_DIR}"
-cat > "${OIDC_CLIENT_SNIPPET}" << 'EOF'
+cat > "${OIDC_CLIENT_SNIPPET}" << EOF
 # Grafana OIDC Client Snippet
 # Installed by marine-grafana-container prestart.sh
-# Authelia's prestart script merges all snippets into oidc-clients.yml
-# Redirect URI uses path redirect (/grafana/) which 302s to the port URL
 
 client_id: grafana
 client_name: Grafana
 client_secret_file: /var/lib/container-apps/marine-grafana-container/data/oidc-secret
 redirect_uris:
-  - 'https://${HALOS_DOMAIN}/grafana/login/generic_oauth'
+  - 'https://${HALOS_DOMAIN}:${EXTERNAL_PORT}/login/generic_oauth'
 scopes: [openid, profile, email, groups]
 consent_mode: implicit
 token_endpoint_auth_method: client_secret_basic
-# Note: PKCE is enforced client-side via GF_AUTH_GENERIC_OAUTH_USE_PKCE=true
 EOF
 
 # Ensure data directory exists and has correct ownership (Grafana runs as UID 472)
