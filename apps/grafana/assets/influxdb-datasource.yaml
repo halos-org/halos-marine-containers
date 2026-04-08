@@ -5,11 +5,11 @@ datasources:
     type: influxdb
     access: proxy
     url: http://influxdb:8086
+    database: marine
     jsonData:
-      version: Flux
-      organization: marine
-      defaultBucket: marine
+      httpMode: POST
+      httpHeaderName1: Authorization
     secureJsonData:
-      token: $__env{INFLUXDB_TOKEN}
+      httpHeaderValue1: Token $__env{INFLUXDB_TOKEN}
     isDefault: true
     editable: true
