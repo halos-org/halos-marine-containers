@@ -113,6 +113,73 @@ consent_mode: implicit
 token_endpoint_auth_method: client_secret_post
 EOF
 
+# --- InfluxDB plugin provisioning ---
+
+INFLUXDB_ENV="/etc/container-apps/marine-influxdb-container/env"
+PLUGIN_CONFIG_DIR="${SIGNALK_DATA}/plugin-config-data"
+PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "${INFLUXDB_ENV}" ]; then
+    INFLUXDB_ADMIN_TOKEN=$(grep '^INFLUXDB_ADMIN_TOKEN=' "${INFLUXDB_ENV}" | cut -d= -f2-)
+
+    if [ -n "${INFLUXDB_ADMIN_TOKEN}" ]; then
+        # Install plugin if not already present
+        if [ ! -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ]; then
+            SIGNALK_IMAGE=$(grep -oP 'image:\s*\K\S+' "${SCRIPT_DIR}/docker-compose.yml" | head -1)
+            echo "Installing signalk-to-influxdb2 plugin..."
+            if timeout 120 docker run --rm --entrypoint npm \
+                -v "${SIGNALK_DATA}:/home/node/.signalk" \
+                -u 1000:1000 \
+                "${SIGNALK_IMAGE}" \
+                install --prefix /home/node/.signalk signalk-to-influxdb2; then
+                echo "Plugin installed successfully"
+            else
+                echo "WARNING: Failed to install signalk-to-influxdb2 (no internet?). Will retry on next restart."
+            fi
+        fi
+
+        # Write plugin config (first time only) or update token
+        mkdir -p "${PLUGIN_CONFIG_DIR}"
+        if [ ! -f "${PLUGIN_CONFIG}" ]; then
+            cat > "${PLUGIN_CONFIG}" << PLUGINEOF
+{
+  "enabled": true,
+  "configuration": {
+    "influxes": [
+      {
+        "url": "http://localhost:8086",
+        "token": "${INFLUXDB_ADMIN_TOKEN}",
+        "org": "marine",
+        "bucket": "marine",
+        "onlySelf": true,
+        "resolution": 1000
+      }
+    ]
+  }
+}
+PLUGINEOF
+            echo "InfluxDB plugin configured"
+        else
+            # Update token in existing config without overwriting other settings
+            if python3 -c "
+import json, sys
+with open('${PLUGIN_CONFIG}', 'r') as f:
+    cfg = json.load(f)
+influxes = cfg.get('configuration', {}).get('influxes', [])
+if influxes:
+    influxes[0]['token'] = '${INFLUXDB_ADMIN_TOKEN}'
+with open('${PLUGIN_CONFIG}', 'w') as f:
+    json.dump(cfg, f, indent=2)
+"; then
+                echo "InfluxDB plugin token updated"
+            else
+                echo "WARNING: Failed to update InfluxDB token in plugin config"
+            fi
+        fi
+    fi
+fi
+
 # Ensure data directory is owned by node user (UID 1000)
 # settings.json is installed via default-data/ at package install time
 # The container runs as node:node, but prestart runs as root
