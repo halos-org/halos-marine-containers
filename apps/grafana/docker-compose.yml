@@ -9,10 +9,9 @@ services:
       # Allow Grafana to resolve HALOS_DOMAIN for OIDC (mDNS doesn't work in containers)
       - "${HALOS_DOMAIN}:host-gateway"
     environment:
-      # Server URL for OAuth redirects — uses port URL when available
-      - GF_SERVER_ROOT_URL=https://${HALOS_DOMAIN}:${HALOS_EXTERNAL_PORT:-443}
-      # Override OAuth redirect URI to use path redirect (survives 302 to port URL)
-      - GF_AUTH_GENERIC_OAUTH_REDIRECT_URL=https://${HALOS_DOMAIN}/grafana/login/generic_oauth
+      # Server URL — must match the port-based URL that users actually access
+      # Grafana derives the OIDC redirect_uri from this (there is no separate setting)
+      - GF_SERVER_ROOT_URL=https://${HALOS_DOMAIN}:${HALOS_EXTERNAL_PORT}
       # OAuth configuration for Authelia SSO
       - GF_AUTH_GENERIC_OAUTH_ENABLED=true
       - GF_AUTH_GENERIC_OAUTH_NAME=HaLOS SSO
@@ -33,8 +32,11 @@ services:
       # Required for self-signed Traefik certs. Acceptable for local-only device.
       - GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE=true
       - GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
-      # Role mapping: Authelia 'admins' group -> Grafana Admin role
-      - "GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(groups[*], 'admins') && 'Admin' || 'Viewer'"
+      # Role mapping: Authelia 'admins' group -> Grafana Admin, others get default Viewer
+      # Must NOT have a fallback (|| 'Viewer') — Grafana evaluates against the ID token
+      # first, and a fallback would always match there (no groups claim), preventing
+      # Grafana from checking the userinfo endpoint where groups actually exist.
+      - "GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(groups[*], 'admins') && 'Admin'"
       - GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN=false
     logging:
       driver: journald
