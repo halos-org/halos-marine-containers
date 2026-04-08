@@ -90,9 +90,9 @@ fi
 # InfluxDB requires passwords between 8 and 72 characters
 PASSWORD_LEN=${#ADMIN_PASSWORD}
 if [ "${PASSWORD_LEN}" -lt 8 ] || [ "${PASSWORD_LEN}" -gt 72 ]; then
-    echo "ERROR: Password must be 8-72 characters (got ${PASSWORD_LEN}). Skipping sync."
+    echo "WARNING: Password must be 8-72 characters (got ${PASSWORD_LEN}). Skipping sync."
     echo "The InfluxDB login password has NOT been changed."
-    exit 1
+    exit 0
 fi
 
 echo "Admin password changed -- syncing to InfluxDB..."
