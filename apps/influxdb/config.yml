@@ -3,36 +3,37 @@ version: "1.0"
 groups:
   - id: database
     label: Database Settings
-    description: Initial database configuration
+    description: Initial database configuration (set during first start only)
     fields:
       - id: INFLUXDB_DB
         label: Default Bucket Name
         type: string
         default: marine
         required: true
-        description: Name of the default data bucket
+        description: Name of the default data bucket (set during initial setup only)
 
   - id: admin
     label: Administrator Account
-    description: Initial admin user credentials
+    description: Admin credentials. Only the password can be changed after initial setup.
     fields:
       - id: INFLUXDB_ADMIN_USER
         label: Admin Username
         type: string
         default: admin
         required: true
-        description: Username for the administrator account
+        description: Username for the administrator account (set during initial setup only)
 
       - id: INFLUXDB_ADMIN_PASSWORD
         label: Admin Password
         type: password
-        default: halos
+        default: halos-default
         required: true
-        description: Password for the administrator account (change immediately after first login)
+        description: Password for the administrator account (8-72 characters, can be changed at any time)
 
       - id: INFLUXDB_ADMIN_TOKEN
         label: Admin API Token
-        type: password
+        type: string
         default: halos-default-token-change-in-production
         required: true
-        description: Admin token for API access (change immediately after first login)
+        readonly: true
+        description: Admin token for API access (auto-generated on first start)
