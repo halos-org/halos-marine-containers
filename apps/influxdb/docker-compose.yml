@@ -8,8 +8,10 @@ services:
       driver: journald
       options:
         tag: "{{.Name}}"
-    # No direct port exposure - access via Traefik at influxdb.{hostname}.local
-    # halos-proxy-network is auto-injected by container-packaging-tools
+    # Expose API on localhost for host-network containers (Signal K)
+    # External access goes through Traefik (halos-proxy-network is auto-injected)
+    ports:
+      - "127.0.0.1:8086:8086"
     volumes:
       - ${CONTAINER_DATA_ROOT}/config:/etc/influxdb2
       - ${CONTAINER_DATA_ROOT}/db:/var/lib/influxdb2
