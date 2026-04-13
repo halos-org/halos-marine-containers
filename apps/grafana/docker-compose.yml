@@ -40,6 +40,12 @@ services:
       - GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN=false
       # InfluxDB datasource token (provisioned conditionally by prestart.sh)
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     logging:
       driver: journald
       options:

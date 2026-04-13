@@ -24,3 +24,9 @@ services:
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN:-halos-default-token-change-in-production}
       - DOCKER_INFLUXD_QUERY_CONCURRENCY=1
       - DOCKER_INFLUXD_QUERY_MEMORY_BYTES=20971520
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

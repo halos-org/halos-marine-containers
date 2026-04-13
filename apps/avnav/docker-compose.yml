@@ -23,5 +23,11 @@ services:
       - GID=1000
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/', timeout=2)\""]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     user: "1000:1000"
     privileged: true
