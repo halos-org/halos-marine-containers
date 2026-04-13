@@ -36,6 +36,12 @@ services:
       - /run:/run
     group_add:
       - "960"  # halpid group for /run/halpid/halpid.sock access
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/signalk || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     privileged: true
     security_opt:
       - no-new-privileges:false
