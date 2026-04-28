@@ -49,12 +49,18 @@ mkdir -p "${OIDC_CLIENTS_DIR}"
 cat > "${OIDC_CLIENT_SNIPPET}" << EOF
 # Grafana OIDC Client Snippet
 # Installed by marine-grafana-container prestart.sh
+#
+# \${HALOS_DOMAIN} is preserved as a literal placeholder (escaped \\\$ in
+# the unquoted heredoc). halos-core-containers' OIDC merger expands it
+# to one redirect_uri per configured DNS hostname at merge time.
+# \${EXTERNAL_PORT} is the prestart-resolved port and substitutes at
+# write time.
 
 client_id: grafana
 client_name: Grafana
 client_secret_file: /var/lib/container-apps/marine-grafana-container/data/oidc-secret
 redirect_uris:
-  - 'https://${HALOS_DOMAIN}:${EXTERNAL_PORT}/login/generic_oauth'
+  - 'https://\${HALOS_DOMAIN}:${EXTERNAL_PORT}/login/generic_oauth'
 scopes: [openid, profile, email, groups]
 consent_mode: implicit
 token_endpoint_auth_method: client_secret_basic
