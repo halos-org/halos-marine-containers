@@ -13,7 +13,7 @@ cd halos
 ./run repos:clone
 ```
 
-See `halos/docs/` for development workflows and guidance.
+See the [halos workspace](https://github.com/halos-org/halos) for development workflows and guidance.
 
 ## About This Project
 
@@ -222,6 +222,6 @@ For testing that invalid authentication attempts are properly rejected (malforme
 
 ## Related
 
-- **Parent**: [../AGENTS.md](../AGENTS.md) - Workspace documentation
+- **Workspace**: [halos](https://github.com/halos-org/halos) - Multi-repo development hub
 - **Tooling**: [container-packaging-tools](https://github.com/halos-org/container-packaging-tools)
 - **UI**: [cockpit-apt](https://github.com/halos-org/cockpit-apt)
