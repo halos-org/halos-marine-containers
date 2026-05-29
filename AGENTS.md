@@ -77,7 +77,7 @@ Individual apps in `apps/` have their own versions in `metadata.yaml`. These are
 **CI Enforcement**:
 
 - **App-level (per PR)**: PRs that change files in `apps/<app>/` must bump the `version` field in `apps/<app>/metadata.yaml`, or CI will fail.
-- **Repo-level (per release cycle)**: `VERSION` bumps are *per release cycle*, not per PR. Default: do NOT bump `VERSION` in feature PRs — CI auto-increments the `+N` revision in release tags (e.g., `v0.3.2+1`, `+2`, `+3`) between stable releases. This repo is a clean example: a single `VERSION` of `0.3.2` has shipped twelve `+N` prereleases. Bump `VERSION` only when starting a new release cycle, i.e., when `VERSION` currently matches the latest stable tag and this PR is opening the next cycle. If `VERSION` already differs from the latest stable tag, no further bump is needed regardless of how many package-affecting files this PR touches.
+- **Repo-level (per release cycle)**: `VERSION` bumps are per release cycle, not per PR — CI fails only on the PR that opens a new cycle. This repo is a clean example: a single `VERSION` of `0.3.2` has shipped twelve `+N` prereleases. See the workspace `AGENTS.md` version-bump policy for the decision procedure.
 
 ## What This Repository Contains
 
