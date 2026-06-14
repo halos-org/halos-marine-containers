@@ -1,6 +1,6 @@
 name: AvNav
 app_id: avnav
-version: 20251028-16
+version: 20251028-17
 upstream_version: "20251028"
 description: Touch-optimized chart plotter for sailing and motor yachts
 long_description: |
@@ -34,6 +34,7 @@ debian_section: graphics
 architecture: all
 depends:
   - docker.io (>= 20.10) | docker-ce (>= 20.10)
+  - halos-core-containers
 web_ui:
   enabled: true
   path: /

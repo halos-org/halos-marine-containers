@@ -4,8 +4,19 @@
 
 set -e
 
-# Derive HALOS_DOMAIN from hostname if not set
-if [ -z "${HALOS_DOMAIN}" ]; then
+# Resolve HALOS_DOMAIN from the canonical hostname in
+# /etc/halos/hostnames.conf via the shared loader (shipped by
+# halos-core-containers). Recomputed unconditionally: systemd loads the
+# previous runtime.env as an EnvironmentFile, so honoring an already-set
+# HALOS_DOMAIN would pin the first-resolved value forever. Fall back to
+# ${hostname}.local only when the loader is unavailable.
+LIB_HOSTNAMES="/usr/lib/halos-core-containers/lib-hostnames.sh"
+if [ -r "${LIB_HOSTNAMES}" ]; then
+    # shellcheck source=/dev/null
+    . "${LIB_HOSTNAMES}"
+    halos_load_hostnames
+    HALOS_DOMAIN="$(halos_canonical_hostname)"
+else
     HALOS_DOMAIN="$(hostname -s).local"
 fi
 

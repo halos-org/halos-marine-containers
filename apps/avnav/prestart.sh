@@ -21,8 +21,21 @@ set +a
 HOSTNAME="$(hostname -s)"
 echo "HOSTNAME=$HOSTNAME" > "$RUNTIME_ENV"
 
-# Set HALOS_DOMAIN for Traefik routing
-HALOS_DOMAIN="${HOSTNAME}.local"
+# Resolve HALOS_DOMAIN from the canonical hostname in
+# /etc/halos/hostnames.conf via the shared loader (shipped by
+# halos-core-containers). Recomputed unconditionally: systemd loads the
+# previous runtime.env as an EnvironmentFile, so honoring an already-set
+# HALOS_DOMAIN would pin the first-resolved value forever. Fall back to
+# ${hostname}.local only when the loader is unavailable.
+LIB_HOSTNAMES="/usr/lib/halos-core-containers/lib-hostnames.sh"
+if [ -r "${LIB_HOSTNAMES}" ]; then
+    # shellcheck source=/dev/null
+    . "${LIB_HOSTNAMES}"
+    halos_load_hostnames
+    HALOS_DOMAIN="$(halos_canonical_hostname)"
+else
+    HALOS_DOMAIN="${HOSTNAME}.local"
+fi
 echo "HALOS_DOMAIN=$HALOS_DOMAIN" >> "$RUNTIME_ENV"
 
 # Compute Homarr URL
