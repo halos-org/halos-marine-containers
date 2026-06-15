@@ -1,29 +1,11 @@
 #!/bin/bash
-# Prestart script for marine-influxdb-container
-# Handles runtime env setup and admin password sync after first-time init.
-set -e
+# InfluxDB app-prestart hook (sourced by the generated framework prestart).
+# Runtime dir, env sourcing, and HOMARR_URL are provided by the framework;
+# this hook only rotates the admin token and syncs the admin password.
 
 PACKAGE_NAME="marine-influxdb-container"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ETC_DIR="/etc/container-apps/${PACKAGE_NAME}"
-RUN_DIR="/run/container-apps/${PACKAGE_NAME}"
-RUNTIME_ENV="${RUN_DIR}/runtime.env"
-
-# Load config values from env files
-set -a
-[ -f "${ETC_DIR}/env.defaults" ] && . "${ETC_DIR}/env.defaults"
-[ -f "${ETC_DIR}/env" ] && . "${ETC_DIR}/env"
-set +a
-
-# Write standard runtime env vars
-mkdir -p "${RUN_DIR}"
-HOSTNAME="$(hostname -s)"
-# HALOS_DOMAIN is inherited from /run/halos/domain.env (published by
-# halos-resolve-domain.service); HOMARR_URL is built from it.
-cat > "${RUNTIME_ENV}" << EOF
-HOSTNAME=${HOSTNAME}
-HOMARR_URL=http://${HALOS_DOMAIN}:8086/
-EOF
 
 # --- Token generation ---
 

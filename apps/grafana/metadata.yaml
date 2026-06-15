@@ -1,6 +1,6 @@
 name: Grafana
 app_id: grafana
-version: 13.0.2-2
+version: 13.0.2-3
 upstream_version: 13.0.2
 description: Data visualization and monitoring platform
 long_description: |
@@ -39,10 +39,22 @@ web_ui:
   visible: true
 routing:
   auth:
-    mode: none  # Grafana handles OAuth natively via prestart.sh OIDC registration
+    # Grafana authenticates users itself via Authelia OIDC (native OAuth), so
+    # there is no Traefik edge gate; mode: oidc wires the Authelia client
+    # scaffolding (secret provisioning, snippet, unit ordering) declaratively.
+    mode: oidc
+    oidc:
+      client_name: Grafana
+      token_endpoint_auth_method: client_secret_basic
+      scopes: [openid, profile, email, groups]
+      consent_mode: implicit
+      redirect:
+        style: port  # Grafana derives its redirect from the external HTTPS port
+        path: /login/generic_oauth
+      env:
+        GRAFANA_OIDC_CLIENT_SECRET: secret
+        HALOS_EXTERNAL_PORT: external_port
 layout:
   priority: 50
   width: 2
   height: 2
-# OIDC configuration is set via prestart.sh and runtime.env
-# OAuth provides authentication via Authelia SSO
