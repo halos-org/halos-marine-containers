@@ -1,0 +1,3 @@
+<AVNServer>
+  <AVNSignalKHandler host="host.docker.internal"/>
+</AVNServer>
