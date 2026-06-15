@@ -21,12 +21,9 @@ set +a
 HOSTNAME="$(hostname -s)"
 echo "HOSTNAME=$HOSTNAME" > "$RUNTIME_ENV"
 
-# Set HALOS_DOMAIN for Traefik routing
-HALOS_DOMAIN="${HOSTNAME}.local"
-echo "HALOS_DOMAIN=$HALOS_DOMAIN" >> "$RUNTIME_ENV"
-
-# Compute Homarr URL
-HOMARR_URL="http://${HOSTNAME}.local:8080"
+# Compute Homarr URL from the inherited HALOS_DOMAIN (published by
+# halos-resolve-domain.service via /run/halos/domain.env).
+HOMARR_URL="http://${HALOS_DOMAIN}:8080"
 echo "HOMARR_URL=$HOMARR_URL" >> "$RUNTIME_ENV"
 
 # -- Signal K handler: use host.docker.internal instead of localhost --

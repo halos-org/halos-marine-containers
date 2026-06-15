@@ -18,10 +18,11 @@ set +a
 # Write standard runtime env vars
 mkdir -p "${RUN_DIR}"
 HOSTNAME="$(hostname -s)"
+# HALOS_DOMAIN is inherited from /run/halos/domain.env (published by
+# halos-resolve-domain.service); HOMARR_URL is built from it.
 cat > "${RUNTIME_ENV}" << EOF
 HOSTNAME=${HOSTNAME}
-HALOS_DOMAIN=${HOSTNAME}.local
-HOMARR_URL=http://${HOSTNAME}.local:8086/
+HOMARR_URL=http://${HALOS_DOMAIN}:8086/
 EOF
 
 # --- Token generation ---

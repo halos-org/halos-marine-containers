@@ -4,10 +4,8 @@
 
 set -e
 
-# Derive HALOS_DOMAIN from hostname if not set
-if [ -z "${HALOS_DOMAIN}" ]; then
-    HALOS_DOMAIN="$(hostname -s).local"
-fi
+# HALOS_DOMAIN is inherited from /run/halos/domain.env (published once by
+# halos-resolve-domain.service and loaded by the generated unit).
 
 SIGNALK_DATA="${CONTAINER_DATA_ROOT}/data"
 SECURITY_FILE="${SIGNALK_DATA}/security.json"
@@ -66,9 +64,9 @@ if [ ! -f "${OIDC_SECRET_FILE}" ]; then
     echo "OIDC client secret stored in ${OIDC_SECRET_FILE}"
 fi
 
-# Write runtime env file for systemd to load
-# HALOS_DOMAIN is needed for docker-compose label substitution
-# OIDC settings expand HALOS_DOMAIN since systemd EnvironmentFile doesn't
+# Write runtime env file for systemd to load. The OIDC/EXTERNALHOST values
+# below expand the inherited HALOS_DOMAIN at prestart time because systemd
+# EnvironmentFile does not expand variables.
 RUNTIME_ENV_DIR="/run/container-apps/marine-signalk-server-container"
 mkdir -p "${RUNTIME_ENV_DIR}"
 
@@ -81,7 +79,6 @@ fi
 
 # EXTERNALHOST strips .local suffix — Signal K's mDNS library (dnssd) appends it
 cat > "${RUNTIME_ENV_DIR}/runtime.env" << EOF
-HALOS_DOMAIN=${HALOS_DOMAIN}
 EXTERNALHOST=${HALOS_DOMAIN%.local}
 EXTERNALPORT=${EXTERNAL_PORT:-443}
 # Requires upstream EXTERNALSSL support: https://github.com/SignalK/signalk-server/pull/2484
