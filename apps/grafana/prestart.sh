@@ -4,11 +4,8 @@
 
 set -e
 
-# Derive HALOS_DOMAIN from hostname if not set
-if [ -z "${HALOS_DOMAIN}" ]; then
-    HALOS_DOMAIN="$(hostname -s).local"
-fi
-
+# HALOS_DOMAIN is inherited from /run/halos/domain.env (published once by
+# halos-resolve-domain.service and loaded by the generated unit).
 echo "Grafana prestart: domain=${HALOS_DOMAIN}"
 
 # Generate OIDC client secret if it doesn't exist
@@ -31,11 +28,10 @@ if [ -z "${EXTERNAL_PORT}" ]; then
     exit 1
 fi
 
-# Write runtime env file with expanded HALOS_DOMAIN
+# Write runtime env file
 RUNTIME_ENV_DIR="/run/container-apps/marine-grafana-container"
 mkdir -p "${RUNTIME_ENV_DIR}"
 cat > "${RUNTIME_ENV_DIR}/runtime.env" << EOF
-HALOS_DOMAIN=${HALOS_DOMAIN}
 GRAFANA_OIDC_CLIENT_SECRET=$(cat "${OIDC_SECRET_FILE}")
 HALOS_EXTERNAL_PORT=${EXTERNAL_PORT}
 EOF
