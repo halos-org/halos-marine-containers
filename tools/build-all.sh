@@ -67,6 +67,10 @@ else
     echo "Skipping container app package generation"
 fi
 
+echo ""
+echo "=== Verifying package payloads ==="
+"${REPO_ROOT}/tools/verify-payloads.sh" "$REPO_ROOT" "$BUILD_DIR" || exit 1
+
 # List built packages
 echo ""
 echo "=== Built packages ==="
