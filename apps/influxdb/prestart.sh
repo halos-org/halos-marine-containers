@@ -82,9 +82,9 @@ influxdb_helper_start() {
         return 1
     fi
 
-    # A previous run killed between start and cleanup still holds the data lock.
+    # The container must not outlive the hook: it holds the data lock the app
+    # container is about to need.
     trap influxdb_cleanup EXIT
-    influxdb_helper_remove
 
     if ! docker run -d --name "${HELPER_CONTAINER}" \
         -v "${DATA_DIR}/config:/etc/influxdb2" \
@@ -331,6 +331,10 @@ DATA_DIR="${CONTAINER_DATA_ROOT}"
 BOLT_FILE="${DATA_DIR}/db/influxd.bolt"
 SHADOW_FILE="${DATA_DIR}/.password-shadow"
 TOKEN_SHADOW_FILE="${DATA_DIR}/.token-shadow"
+
+# A boot killed before its cleanup leaves a helper holding the data lock, and
+# every path below can end without ever reaching the helper's own teardown.
+influxdb_helper_remove
 
 if [ ! -f "${BOLT_FILE}" ]; then
     # Before first setup the container adopts whatever the env file holds, so
