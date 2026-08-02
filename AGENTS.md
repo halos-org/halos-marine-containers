@@ -209,6 +209,20 @@ Test single sign-on session sharing between Authelia and Signal K:
 
 This specifically tests that a user who is already authenticated with Authelia (e.g., from Homarr) can access Signal K without re-authenticating.
 
+### InfluxDB Prestart Hook
+
+The InfluxDB prestart hook manages the admin API token and password of a live
+database, so it is tested against a real InfluxDB rather than a mock:
+
+```bash
+./tools/test-influxdb-prestart.sh
+```
+
+Runs locally (needs Docker, GNU grep and `sha256sum`), builds throwaway data
+volumes under a temp directory, and never touches `/etc` or a device. Run it
+after changing `apps/influxdb/prestart.sh`; it is not part of CI because it
+pulls and boots the InfluxDB image.
+
 ### Authentication Negative Tests
 
 For testing that invalid authentication attempts are properly rejected (malformed tokens, expired tokens, OIDC callback validation, etc.), use the generic test script in the signalk-server repository:
