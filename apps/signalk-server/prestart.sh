@@ -66,52 +66,11 @@ EXTERNAL_PORT="$(grep '^signalk-server=' /etc/halos/port-registry 2>/dev/null | 
     echo "EXTERNALSSL=1"
 } >> "$RUNTIME_ENV"
 
-# --- Curated plugin/webapp provisioning ---
-# Seed any curated Signal K app not already present in the data dir. The plugins
-# are normal npm packages, so the Signal K app store updates them individually
-# afterwards (no deb rebuild). Present plugins are skipped, so an existing or
-# app-store-updated install is never downgraded, and progress is monotonic: a
-# package whose install times out is retried on the next restart without blocking
-# the others.
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_MANIFEST="${SCRIPT_DIR}/plugins.list"
-SIGNALK_IMAGE=$(grep -oP 'image:\s*\K\S+' "${SCRIPT_DIR}/docker-compose.yml" | head -1)
-NPM_CACHE="${CONTAINER_DATA_ROOT}/npm-cache"
-PLUGIN_INSTALL_TIMEOUT=600
-
-seed_plugin() {
-    local pkg="$1"
-    if [ -d "${SIGNALK_DATA}/node_modules/${pkg}" ]; then
-        return 0
-    fi
-    echo "Installing ${pkg}..."
-    if timeout "${PLUGIN_INSTALL_TIMEOUT}" docker run --rm --entrypoint npm \
-        -v "${SIGNALK_DATA}:/home/node/.signalk" \
-        -v "${NPM_CACHE}:/home/node/.npm" \
-        -u 1000:1000 \
-        "${SIGNALK_IMAGE}" \
-        install --prefix /home/node/.signalk --cache /home/node/.npm "${pkg}"; then
-        echo "  ${pkg} installed"
-    else
-        echo "WARNING: failed to install ${pkg} (no internet?); will retry on next restart"
-    fi
-}
-
-if [ -f "${PLUGIN_MANIFEST}" ]; then
-    mkdir -p "${NPM_CACHE}"
-    chown 1000:1000 "${NPM_CACHE}"
-    while IFS= read -r line; do
-        pkg="${line%%#*}"
-        pkg="$(echo "${pkg}" | xargs)"
-        [ -n "${pkg}" ] || continue
-        seed_plugin "${pkg}"
-    done < "${PLUGIN_MANIFEST}"
-fi
-
 # --- InfluxDB plugin configuration ---
-# signalk-to-influxdb2 is seeded from the manifest above; wire its token from the
-# InfluxDB container's env once the plugin is present.
+# signalk-to-influxdb2 is installed by provision.sh, which runs to completion in
+# its own unit before this one starts. Wire its token from the InfluxDB
+# container's env once the plugin is present; on a boot where provisioning could
+# not complete, the config is simply written on a later start.
 INFLUXDB_ENV="/etc/container-apps/marine-influxdb-container/env"
 PLUGIN_CONFIG_DIR="${SIGNALK_DATA}/plugin-config-data"
 PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
@@ -161,7 +120,19 @@ with open('${PLUGIN_CONFIG}', 'w') as f:
     fi
 fi
 
-# Ensure data directory is owned by node user (UID 1000)
-# settings.json is installed via default-data/ at package install time
-# The container runs as node:node, but prestart runs as root
-chown -R 1000:1000 "${CONTAINER_DATA_ROOT}"
+# The container runs as node:node while this script runs as root, so anything root
+# creates here has to be handed over. Only those paths: a recursive chown of the
+# whole data root would walk the curated plugin tree and the npm cache on every
+# boot, inside the start budget whose exhaustion this app's provisioning was moved
+# out of ExecStartPre to avoid. node_modules and npm-cache are written by the
+# container as uid 1000 already and need no handover.
+#
+# Deliberately not included: admin-password and oidc-secret. Both are root-owned
+# mode 600 emergency/secret material that the container never reads.
+chown 1000:1000 "${SIGNALK_DATA}"
+if [ -f "${SIGNALK_DATA}/settings.json" ]; then
+    chown 1000:1000 "${SIGNALK_DATA}/settings.json"
+fi
+if [ -d "${PLUGIN_CONFIG_DIR}" ]; then
+    chown -R 1000:1000 "${PLUGIN_CONFIG_DIR}"
+fi
