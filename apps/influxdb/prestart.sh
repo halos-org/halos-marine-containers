@@ -109,13 +109,14 @@ influxdb_helper_start() {
 
 # Echoes the HTTP status of an API call, or 000 when the call could not be made.
 influxdb_api() {
-    local method="$1" path="$2" token="${3:-}" body="${4:-}"
+    local method="$1" path="$2" token="${3:-}" body="${4:-}" status
     local args=(-s -o /dev/null -w '%{http_code}' -X "${method}"
         -H "Authorization: Token ${token}")
     if [ -n "${body}" ]; then
         args+=(-H "Content-Type: application/json" -d "${body}")
     fi
-    docker exec "${HELPER_CONTAINER}" curl "${args[@]}" "${API_URL}/${path}" 2>/dev/null
+    status=$(docker exec "${HELPER_CONTAINER}" curl "${args[@]}" "${API_URL}/${path}" 2>/dev/null)
+    printf '%s' "${status:-000}"
 }
 
 influxdb_token_is_accepted() {
@@ -125,10 +126,17 @@ influxdb_token_is_accepted() {
     return 1
 }
 
+influxdb_activate_auth() {
+    case "$(influxdb_api PATCH "api/v2/authorizations/$1" "${OPERATOR_TOKEN}" '{"status":"active"}')" in
+        2*) return 0 ;;
+    esac
+    influxdb_warn "authorization $1 was disabled while looking for the default admin token and could not be re-enabled; re-enable it in the InfluxDB UI under Load Data / API Tokens"
+    return 1
+}
+
 influxdb_cleanup() {
     if [ -n "${SUSPENDED_AUTH_ID}" ]; then
-        influxdb_api PATCH "api/v2/authorizations/${SUSPENDED_AUTH_ID}" \
-            "${OPERATOR_TOKEN}" '{"status":"active"}' >/dev/null
+        influxdb_activate_auth "${SUSPENDED_AUTH_ID}"
         SUSPENDED_AUTH_ID=""
     fi
     influxdb_helper_remove
@@ -149,7 +157,7 @@ influxdb_active_auth_ids() {
 # InfluxDB never reveals token values, so the authorization holding the default
 # is identified by disabling candidates until the default stops authenticating.
 influxdb_revoke_default_token() {
-    local keep_id="$1" id
+    local keep_id="$1" id probe
 
     for id in $(influxdb_active_auth_ids "${OPERATOR_TOKEN}"); do
         [ "${id}" = "${keep_id}" ] && continue
@@ -159,12 +167,28 @@ influxdb_revoke_default_token() {
             *) continue ;;
         esac
 
-        if influxdb_token_is_accepted "${PLACEHOLDER_TOKEN}"; then
-            influxdb_api PATCH "api/v2/authorizations/${id}" "${OPERATOR_TOKEN}" '{"status":"active"}' >/dev/null
+        # Only a 401 proves this authorization is the one holding the default
+        # token. A 5xx or an unreachable API says nothing, and deleting on that
+        # would destroy a credential InfluxDB cannot reissue.
+        #
+        # The restore below stays unused in practice: token values are
+        # server-generated, so only the setup authorization can hold the default
+        # one, and being the oldest it comes up first. The sweep restores anyway
+        # rather than depend on that listing order.
+        probe=$(influxdb_api GET api/v2/me "${PLACEHOLDER_TOKEN}")
+        if [ "${probe}" != "401" ]; then
+            # A failed restore keeps the id for the EXIT trap to retry.
+            influxdb_activate_auth "${id}" || return 1
             SUSPENDED_AUTH_ID=""
-            continue
+            case "${probe}" in
+                2*) continue ;;
+            esac
+            influxdb_warn "could not tell whether authorization ${id} holds the default admin token (HTTP ${probe}); nothing was deleted. If the default token still works, delete its authorization in the InfluxDB UI under Load Data / API Tokens"
+            return 1
         fi
 
+        # Reaching here proves this authorization holds the default token, so
+        # the EXIT trap must never put it back, delete or no delete.
         SUSPENDED_AUTH_ID=""
         case "$(influxdb_api DELETE "api/v2/authorizations/${id}" "${OPERATOR_TOKEN}")" in
             2*) echo "Revoked the default admin token (authorization ${id})" ;;
