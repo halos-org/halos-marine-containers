@@ -23,8 +23,13 @@ CONTAINER_GID=1000
 # Per-package stop-loss, and a total wall-clock budget for the whole run. The app's
 # start job waits on this unit, so the budget bounds how long a boot is delayed;
 # whatever does not fit is picked up on the next start.
-PACKAGE_TIMEOUT=300
-BUDGET=900
+#
+# Measured on a CM5 (the HALPI2 class) over a normal connection: the full 17-package
+# set takes ~72s cold, and the slowest single package is @signalk/charts-plugin at
+# ~39s. These leave roughly 4x margin on both without letting a pathological run
+# hold the app for many minutes.
+PACKAGE_TIMEOUT=180
+BUDGET=300
 
 [ -f "${MANIFEST}" ] || { echo "no manifest at ${MANIFEST}; nothing to provision"; exit 0; }
 
