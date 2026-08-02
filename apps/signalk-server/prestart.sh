@@ -66,32 +66,60 @@ EXTERNAL_PORT="$(grep '^signalk-server=' /etc/halos/port-registry 2>/dev/null | 
     echo "EXTERNALSSL=1"
 } >> "$RUNTIME_ENV"
 
-# --- InfluxDB plugin provisioning ---
+# --- Curated plugin/webapp provisioning ---
+# Seed any curated Signal K app not already present in the data dir. The plugins
+# are normal npm packages, so the Signal K app store updates them individually
+# afterwards (no deb rebuild). Present plugins are skipped, so an existing or
+# app-store-updated install is never downgraded, and progress is monotonic: a
+# package whose install times out is retried on the next restart without blocking
+# the others.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_MANIFEST="${SCRIPT_DIR}/plugins.list"
+SIGNALK_IMAGE=$(grep -oP 'image:\s*\K\S+' "${SCRIPT_DIR}/docker-compose.yml" | head -1)
+NPM_CACHE="${CONTAINER_DATA_ROOT}/npm-cache"
+PLUGIN_INSTALL_TIMEOUT=600
+
+seed_plugin() {
+    local pkg="$1"
+    if [ -d "${SIGNALK_DATA}/node_modules/${pkg}" ]; then
+        return 0
+    fi
+    echo "Installing ${pkg}..."
+    if timeout "${PLUGIN_INSTALL_TIMEOUT}" docker run --rm --entrypoint npm \
+        -v "${SIGNALK_DATA}:/home/node/.signalk" \
+        -v "${NPM_CACHE}:/home/node/.npm" \
+        -u 1000:1000 \
+        "${SIGNALK_IMAGE}" \
+        install --prefix /home/node/.signalk --cache /home/node/.npm "${pkg}"; then
+        echo "  ${pkg} installed"
+    else
+        echo "WARNING: failed to install ${pkg} (no internet?); will retry on next restart"
+    fi
+}
+
+if [ -f "${PLUGIN_MANIFEST}" ]; then
+    mkdir -p "${NPM_CACHE}"
+    chown 1000:1000 "${NPM_CACHE}"
+    while IFS= read -r line; do
+        pkg="${line%%#*}"
+        pkg="$(echo "${pkg}" | xargs)"
+        [ -n "${pkg}" ] || continue
+        seed_plugin "${pkg}"
+    done < "${PLUGIN_MANIFEST}"
+fi
+
+# --- InfluxDB plugin configuration ---
+# signalk-to-influxdb2 is seeded from the manifest above; wire its token from the
+# InfluxDB container's env once the plugin is present.
 INFLUXDB_ENV="/etc/container-apps/marine-influxdb-container/env"
 PLUGIN_CONFIG_DIR="${SIGNALK_DATA}/plugin-config-data"
 PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "${INFLUXDB_ENV}" ]; then
+if [ -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ] && [ -f "${INFLUXDB_ENV}" ]; then
     INFLUXDB_ADMIN_TOKEN=$(grep '^INFLUXDB_ADMIN_TOKEN=' "${INFLUXDB_ENV}" | cut -d= -f2-)
 
     if [ -n "${INFLUXDB_ADMIN_TOKEN}" ]; then
-        # Install plugin if not already present
-        if [ ! -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ]; then
-            SIGNALK_IMAGE=$(grep -oP 'image:\s*\K\S+' "${SCRIPT_DIR}/docker-compose.yml" | head -1)
-            echo "Installing signalk-to-influxdb2 plugin..."
-            if timeout 120 docker run --rm --entrypoint npm \
-                -v "${SIGNALK_DATA}:/home/node/.signalk" \
-                -u 1000:1000 \
-                "${SIGNALK_IMAGE}" \
-                install --prefix /home/node/.signalk signalk-to-influxdb2; then
-                echo "Plugin installed successfully"
-            else
-                echo "WARNING: Failed to install signalk-to-influxdb2 (no internet?). Will retry on next restart."
-            fi
-        fi
-
         # Write plugin config (first time only) or update token
         mkdir -p "${PLUGIN_CONFIG_DIR}"
         if [ ! -f "${PLUGIN_CONFIG}" ]; then
