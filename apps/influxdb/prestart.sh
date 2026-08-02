@@ -201,6 +201,18 @@ influxdb_revoke_default_token() {
     return 1
 }
 
+# A minted token that never reaches the env file only ever existed in this
+# shell, so its authorization is unusable clutter the moment the run fails.
+influxdb_discard_auth() {
+    local id="$1" token="$2"
+    [ -n "${id}" ] || return 0
+    case "$(influxdb_api DELETE "api/v2/authorizations/${id}" "${token}")" in
+        2*) return 0 ;;
+    esac
+    influxdb_warn "the unusable authorization ${id} could not be deleted; remove it in the InfluxDB UI under Load Data / API Tokens"
+    return 1
+}
+
 influxdb_repair_token() {
     local token_hash auth_id new_token
 
@@ -248,15 +260,19 @@ influxdb_repair_token() {
 
     if [ -z "${auth_id}" ] || [ -z "${new_token}" ] || ! influxdb_token_is_accepted "${new_token}"; then
         influxdb_warn "could not create a working admin API token; leaving ${ENV_FILE} untouched"
+        influxdb_discard_auth "${auth_id}" "${PLACEHOLDER_TOKEN}"
         return 1
     fi
     OPERATOR_TOKEN="${new_token}"
 
     if ! influxdb_set_admin_token "${new_token}"; then
         influxdb_warn "could not write the new admin API token to ${ENV_FILE}"
+        influxdb_discard_auth "${auth_id}" "${new_token}"
         return 1
     fi
     echo "Wrote a fresh operator token to ${ENV_FILE}"
+    # The apps that read this token copied it at their own prestart.
+    echo "Restart the apps that use InfluxDB so they pick up the new token: systemctl restart marine-grafana-container.service marine-signalk-server-container.service"
     influxdb_write_private_file "${TOKEN_SHADOW_FILE}" "$(influxdb_hash "${new_token}")"
 
     influxdb_revoke_default_token "${auth_id}"
