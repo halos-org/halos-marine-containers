@@ -67,8 +67,9 @@ EOF
     echo "This is a fallback for emergency access. Use OIDC for regular login."
 
     # Store the password for emergency recovery
-    echo "${ADMIN_PASSWORD}" > "${CONTAINER_DATA_ROOT}/admin-password"
+    touch "${CONTAINER_DATA_ROOT}/admin-password"
     chmod 600 "${CONTAINER_DATA_ROOT}/admin-password"
+    echo "${ADMIN_PASSWORD}" > "${CONTAINER_DATA_ROOT}/admin-password"
 fi
 
 # Signal K advertises its external URL via mDNS from these. EXTERNALHOST strips
@@ -84,10 +85,10 @@ EXTERNAL_PORT="$(grep '^signalk-server=' /etc/halos/port-registry 2>/dev/null | 
 } >> "$RUNTIME_ENV"
 
 # --- InfluxDB plugin configuration ---
-# signalk-to-influxdb2 is installed by provision.sh, which runs to completion in
-# its own unit before this one starts. Wire its token from the InfluxDB
-# container's env once the plugin is present; on a boot where provisioning could
-# not complete, the config is simply written on a later start.
+# signalk-to-influxdb2 is installed by provision.sh, which the app unit requires,
+# so it is present unless the operator removed it through the app store. The
+# token lives in the InfluxDB container's env and is rewritten here on every
+# start, because rotating it there must reach this config.
 INFLUXDB_ENV="${INFLUXDB_ENV:-/etc/container-apps/marine-influxdb-container/env}"
 
 if [ -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ] && [ -f "${INFLUXDB_ENV}" ]; then
@@ -120,16 +121,17 @@ PLUGINEOF
             echo "InfluxDB plugin configured"
         else
             # Update token in existing config without overwriting other settings
-            if python3 -c "
-import json, sys
-with open('${PLUGIN_CONFIG}', 'r') as f:
+            if INFLUX_TOKEN="${INFLUXDB_ADMIN_TOKEN}" python3 - "${PLUGIN_CONFIG}" <<'PYEOF'; then
+import json, os, sys
+path = sys.argv[1]
+with open(path) as f:
     cfg = json.load(f)
 influxes = cfg.get('configuration', {}).get('influxes', [])
 if influxes:
-    influxes[0]['token'] = '${INFLUXDB_ADMIN_TOKEN}'
-with open('${PLUGIN_CONFIG}', 'w') as f:
+    influxes[0]['token'] = os.environ['INFLUX_TOKEN']
+with open(path, 'w') as f:
     json.dump(cfg, f, indent=2)
-"; then
+PYEOF
                 echo "InfluxDB plugin token updated"
             else
                 echo "WARNING: Failed to update InfluxDB token in plugin config"

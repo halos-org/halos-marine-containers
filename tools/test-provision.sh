@@ -1,5 +1,5 @@
 #!/bin/bash
-# Exercise apps/signalk-server/provision.sh with stubbed docker/getent/curl.
+# Exercise apps/signalk-server/provision.sh with stubbed docker/dpkg-query.
 #
 # The hook decides whether a boot costs nothing or blocks Signal K indefinitely,
 # and none of that is visible to a test that greps the file. This runs it: no
@@ -42,7 +42,8 @@ if [ "${1:-}" = "pull" ]; then
         echo "Error response from daemon: manifest unknown"
         exit 1
     fi
-    [ -n "${STUB_PULL_FAIL:-}" ] && { echo "net/http: TLS handshake timeout"; exit 1; }
+    { [ -n "${STUB_PULL_FAIL:-}" ] || [ -n "${STUB_OFFLINE:-}" ]; } &&
+        { echo "net/http: TLS handshake timeout"; exit 1; }
     : > "${STUB_IMAGE_MARKER}"
     exit 0
 fi
@@ -53,7 +54,8 @@ if [ -n "${STUB_NPM_404:-}" ]; then
     echo "npm error 404 Not Found - GET https://registry.npmjs.org/${STUB_NPM_404}"
     exit 1
 fi
-[ -n "${STUB_NPM_FAIL:-}" ] && { echo "npm error network"; exit 1; }
+[ -n "${STUB_NPM_FAIL:-}" ] || [ -n "${STUB_OFFLINE:-}" ] &&
+    { echo "npm error network request to https://registry.npmjs.org failed"; exit 1; }
 
 # Everything below derives the install from the arguments actually passed. A stub
 # that writes to a known-good path instead would install successfully no matter
@@ -99,16 +101,6 @@ STUB
 #!/bin/bash
 [ -n "${STUB_PKG_VERSION:-}" ] || exit 1
 echo -n "${STUB_PKG_VERSION}"
-STUB
-    cat > "${SANDBOX}/bin/getent" <<'STUB'
-#!/bin/bash
-[ -n "${STUB_OFFLINE:-}" ] && exit 2
-exit 0
-STUB
-    cat > "${SANDBOX}/bin/curl" <<'STUB'
-#!/bin/bash
-[ -n "${STUB_OFFLINE:-}" ] && exit 7
-exit 0
 STUB
     chmod 755 "${SANDBOX}/bin"/*
     STUB_LOG="${SANDBOX}/docker.log"; : > "${STUB_LOG}"
@@ -157,6 +149,9 @@ teardown
 setup "pkg-a"
 check "missing package is installed" "$(run_hook 10)" "0"
 check "  with one docker run" "$(grep -c '^docker run' "${STUB_LOG}")" "1"
+grep -q -- '--name marine-signalk-server-container-provision' "${STUB_LOG}" &&
+    ok "  under the name the unit reaps" ||
+    bad "  under the name the unit reaps" "$(cat "${STUB_LOG}")"
 teardown
 
 setup "pkg-a"
@@ -182,8 +177,8 @@ teardown
 setup "pkg-a"
 export STUB_OFFLINE=1
 check "offline keeps retrying (killed by timeout)" "$(run_hook 3)" "124"
-grep -q "registry unreachable" "${SANDBOX}/out" &&
-    ok "  and says why" || bad "  and says why" "$(tail -2 "${SANDBOX}/out")"
+grep -q "npm error network" "${SANDBOX}/out" &&
+    ok "  and logs the npm error" || bad "  and logs the npm error" "$(tail -2 "${SANDBOX}/out")"
 teardown
 
 setup "pkg-a"

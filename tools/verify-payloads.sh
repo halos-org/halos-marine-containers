@@ -1,10 +1,12 @@
 #!/bin/bash
-# Verify each app's runtime payload actually reached its .deb.
+# Verify the app-supplied payload the generator does not know by name reached the
+# .deb: provision.sh and everything under assets/.
 #
 # The generator packages a fixed set of paths, so a file an app adds outside that
-# set is copied by nothing and no build error is raised. A hook then finds no
-# manifest at runtime and the feature is silently inert -- which is exactly how a
-# curated plugin set once shipped doing nothing.
+# set is copied by nothing and no build error is raised -- the hook then finds no
+# manifest at runtime and the feature is silently inert. Files the generator does
+# handle (prestart.sh, docker-compose.yml, config.yml) cannot fail this way and
+# are not checked here.
 #
 # Usage: verify-payloads.sh <repo-root> <build-dir>
 set -uo pipefail

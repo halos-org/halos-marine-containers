@@ -151,14 +151,6 @@ ensure_image() {
     return 1
 }
 
-registry_reachable() {
-    if ! command -v curl >/dev/null 2>&1; then
-        # Cannot probe, so do not claim to know. Let the install attempt report.
-        return 0
-    fi
-    timeout 5 getent hosts registry.npmjs.org >/dev/null 2>&1 || return 1
-    timeout 10 curl -sfI https://registry.npmjs.org/ >/dev/null 2>&1
-}
 
 # Returns 0 installed, 1 transient failure, 2 the registry says it will never
 # exist. Only the last is worth giving up over.
@@ -172,7 +164,7 @@ install_package() {
         -v "${NPM_CACHE}:/home/node/.npm" \
         -u "${CONTAINER_UID}:${CONTAINER_GID}" \
         "${SIGNALK_IMAGE}" \
-        install --prefix /home/node/.signalk --cache /home/node/.npm "${pkg}" 2>&1)"
+        install --ignore-scripts --prefix /home/node/.signalk --cache /home/node/.npm "${pkg}" 2>&1)"
     status=$?
     [ "${status}" -eq 0 ] && return 0
 
@@ -183,7 +175,7 @@ install_package() {
         log "ERROR: ${pkg} does not exist in the registry"
         return 2
     fi
-    log "${pkg} failed (exit ${status}); will retry"
+    log "${pkg} failed (exit ${status}): $(tail -3 <<<"${out}" | tr '\n' ' ')"
     return 1
 }
 
@@ -192,6 +184,10 @@ install_package() {
 SIGNALK_IMAGE="$(sed -n 's/^[[:space:]]*image:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
     "${SCRIPT_DIR}/docker-compose.yml" | head -1)"
 [ -n "${SIGNALK_IMAGE}" ] || { log "ERROR: no image in docker-compose.yml"; exit 1; }
+
+# A container the last run left behind keeps writing to the data volume.
+# ExecStopPost reaps it on an ordinary stop; this covers a hard kill.
+docker rm -f "${HALOS_PROVISION_CONTAINER}" >/dev/null 2>&1 || true
 
 mapfile -t WANTED < <(read_manifest)
 [ ${#WANTED[@]} -gt 0 ] || { log "manifest is empty; nothing to do"; exit 0; }
@@ -233,12 +229,6 @@ while true; do
 
     prepare_paths
 
-    if ! registry_reachable; then
-        log "registry unreachable; retrying in ${delay}s (${#missing[@]} package(s) outstanding)"
-        sleep "${delay}"
-        delay=$(( delay * 2 > RETRY_MAX ? RETRY_MAX : delay * 2 ))
-        continue
-    fi
 
     log "attempt ${attempt}: installing ${#missing[@]} of ${#WANTED[@]} curated packages"
     progressed=0

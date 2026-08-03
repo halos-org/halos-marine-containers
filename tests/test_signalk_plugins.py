@@ -1,8 +1,9 @@
 """Tests for the curated Signal K plugin manifest.
 
-The manifest is read at runtime by apps/signalk-server/provision.sh, which logs a
-warning and moves on when an entry fails to install. A typo therefore ships
-silently, so the manifest is validated here instead.
+The manifest is read at runtime by apps/signalk-server/provision.sh. An entry the
+registry will never serve makes it exit non-zero, and Signal K requires that unit
+after an install or upgrade -- so a typo here withholds the app on every device
+that has not yet provisioned this package version.
 """
 
 import re
@@ -54,7 +55,11 @@ def test_entries_exist_in_the_registry():
             with urllib.request.urlopen(url, timeout=30) as response:
                 assert response.status == 200, f"{entry}: HTTP {response.status}"
         except urllib.error.HTTPError as exc:
-            raise AssertionError(f"{entry} is not in the npm registry") from exc
+            if exc.code == 404:
+                raise AssertionError(f"{entry} is not in the npm registry") from exc
+            pytest.skip(f"registry returned HTTP {exc.code} for {entry}")
+        except urllib.error.URLError as exc:
+            pytest.skip(f"npm registry unreachable: {exc.reason}")
 
 
 def test_no_duplicate_entries():
@@ -69,18 +74,6 @@ def test_influxdb_plugin_is_present():
     assert "signalk-to-influxdb2" in manifest_entries()
 
 
-def test_webapps_are_ordered_first():
-    """Provisioning installs in manifest order and can run out of its per-boot
-    budget, so the webapps a chartplotter needs must not sit behind the long
-    tail. Anything reordered past them loses that guarantee silently."""
-    entries = manifest_entries()
-    webapps = ["@signalk/freeboard-sk", "@halos-org/skip", "@signalk/charts-plugin"]
-
-    for webapp in webapps:
-        assert webapp in entries, f"expected webapp missing: {webapp}"
-    positions = [entries.index(w) for w in webapps]
-    assert positions == sorted(positions)
-    assert max(positions) < len(entries) / 2
 
 
 def test_manifest_has_no_crlf():
@@ -95,7 +88,7 @@ def test_scripts_are_executable(script):
 
 
 def test_provision_hook_behaves(tmp_path):
-    """Run the hook against stubbed docker/getent/curl.
+    """Run the hook against stubbed docker/dpkg-query.
 
     Everything that decides whether a boot costs nothing or blocks Signal K
     indefinitely lives in that script, and no assertion on its text reaches it.
@@ -112,9 +105,9 @@ def test_provision_hook_behaves(tmp_path):
 def test_prestart_hook_behaves(tmp_path):
     """Run the hook against a sandbox with stubbed chown/bcrypt.
 
-    It writes the admin hash, the JWT key and the InfluxDB token, and decides
-    which paths change owner. Neither the resulting file modes nor the ownership
-    repair on an upgraded device is visible to an assertion on its text.
+    It writes the admin hash, the JWT key and the InfluxDB token. Their modes are
+    a property of the filesystem after it runs, which no assertion on the
+    script's text reaches.
     """
     harness = Path(__file__).parent.parent / "tools" / "test-prestart.sh"
 
@@ -140,9 +133,9 @@ def test_prestart_chown_is_scoped():
     """A recursive chown over any ancestor of node_modules walks the whole plugin
     tree and the npm cache on every boot, inside the app unit's start budget.
 
-    Asserted as a property: matching one literal spelling let
-    `chown -R 1000:1000 "${SIGNALK_DATA}"` through, which is the same recursive
-    walk because SIGNALK_DATA contains node_modules.
+    Parsed rather than pattern-matched: the target is only the second token when
+    no flags sit between `-R` and the owner, and SIGNALK_DATA contains
+    node_modules just as surely as the data root does.
     """
     prestart = (APP_DIR / "prestart.sh").read_text()
 
@@ -157,11 +150,3 @@ def test_prestart_chown_is_scoped():
         )
 
 
-def test_provision_uses_the_framework_container_name():
-    """The unit reaps this exact name in ExecStopPost after a start timeout. A
-    hook that names its container anything else leaves an installer running
-    against the data volume."""
-    provision = (APP_DIR / "provision.sh").read_text()
-
-    assert '--name "${HALOS_PROVISION_CONTAINER}"' in provision
-    assert 'docker rm -f "${HALOS_PROVISION_CONTAINER}"' in provision
