@@ -109,6 +109,22 @@ def test_provision_hook_behaves(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_prestart_hook_behaves(tmp_path):
+    """Run the hook against a sandbox with stubbed chown/bcrypt.
+
+    It writes the admin hash, the JWT key and the InfluxDB token, and decides
+    which paths change owner. Neither the resulting file modes nor the ownership
+    repair on an upgraded device is visible to an assertion on its text.
+    """
+    harness = Path(__file__).parent.parent / "tools" / "test-prestart.sh"
+
+    result = subprocess.run(
+        ["bash", str(harness)], capture_output=True, text=True, timeout=120
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_prestart_no_longer_seeds_plugins():
     """Seeding moved to provision.sh so it runs outside the app unit's start
     path. If it reappears here it is back inside the blocking ExecStartPre whose

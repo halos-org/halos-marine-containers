@@ -8,9 +8,29 @@
 
 SIGNALK_DATA="${CONTAINER_DATA_ROOT}/data"
 SECURITY_FILE="${SIGNALK_DATA}/security.json"
+PLUGIN_CONFIG_DIR="${SIGNALK_DATA}/plugin-config-data"
+PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
 
 # Create data directory if needed
 mkdir -p "${SIGNALK_DATA}"
+
+# Repair what earlier versions of this hook left behind. They created the secret
+# files world-readable and chowned the entire data root to the container user, so
+# a device that has been through an upgrade still carries the admin hash, the JWT
+# key and the InfluxDB token in 0644 files, and the two root-only secrets owned by
+# uid 1000 -- which is the host's `pi` on HaLOS. Everything created below this
+# point is written restricted in the first place.
+if [ -f "${SECURITY_FILE}" ]; then
+    chmod 600 "${SECURITY_FILE}"
+fi
+if [ -f "${PLUGIN_CONFIG}" ]; then
+    chmod 600 "${PLUGIN_CONFIG}"
+fi
+for secret in admin-password oidc-secret; do
+    if [ -f "${CONTAINER_DATA_ROOT}/${secret}" ]; then
+        chown root:root "${CONTAINER_DATA_ROOT}/${secret}"
+    fi
+done
 
 # Only create security.json if it doesn't exist
 if [ ! -f "${SECURITY_FILE}" ]; then
@@ -26,7 +46,10 @@ if [ ! -f "${SECURITY_FILE}" ]; then
     # Generate a secret key for JWT tokens
     SECRET_KEY=$(openssl rand -hex 32)
 
-    # Create security.json
+    # Holds the admin bcrypt hash and the JWT signing key. Restricted before the
+    # first write rather than after, so the secrets never sit in a 0644 file.
+    touch "${SECURITY_FILE}"
+    chmod 600 "${SECURITY_FILE}"
     cat > "${SECURITY_FILE}" << EOF
 {
   "strategy": "./tokensecurity",
@@ -71,9 +94,7 @@ EXTERNAL_PORT="$(grep '^signalk-server=' /etc/halos/port-registry 2>/dev/null | 
 # its own unit before this one starts. Wire its token from the InfluxDB
 # container's env once the plugin is present; on a boot where provisioning could
 # not complete, the config is simply written on a later start.
-INFLUXDB_ENV="/etc/container-apps/marine-influxdb-container/env"
-PLUGIN_CONFIG_DIR="${SIGNALK_DATA}/plugin-config-data"
-PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
+INFLUXDB_ENV="${INFLUXDB_ENV:-/etc/container-apps/marine-influxdb-container/env}"
 
 if [ -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ] && [ -f "${INFLUXDB_ENV}" ]; then
     INFLUXDB_ADMIN_TOKEN=$(grep '^INFLUXDB_ADMIN_TOKEN=' "${INFLUXDB_ENV}" | cut -d= -f2-)
@@ -82,6 +103,9 @@ if [ -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ] && [ -f "${INFLUXD
         # Write plugin config (first time only) or update token
         mkdir -p "${PLUGIN_CONFIG_DIR}"
         if [ ! -f "${PLUGIN_CONFIG}" ]; then
+            # Carries the InfluxDB admin token.
+            touch "${PLUGIN_CONFIG}"
+            chmod 600 "${PLUGIN_CONFIG}"
             cat > "${PLUGIN_CONFIG}" << PLUGINEOF
 {
   "enabled": true,
@@ -127,8 +151,8 @@ fi
 # out of ExecStartPre to avoid. node_modules and npm-cache are written by the
 # container as uid 1000 already and need no handover.
 #
-# Deliberately not included: admin-password and oidc-secret. Both are root-owned
-# mode 600 emergency/secret material that the container never reads.
+# Deliberately not included: admin-password and oidc-secret. Neither is mounted
+# into the container, and the block above keeps them root-owned.
 chown 1000:1000 "${SIGNALK_DATA}"
 if [ -f "${SIGNALK_DATA}/settings.json" ]; then
     chown 1000:1000 "${SIGNALK_DATA}/settings.json"

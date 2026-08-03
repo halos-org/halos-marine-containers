@@ -29,7 +29,25 @@ for app_dir in "${REPO_ROOT}/apps"/*; do
         [ -n "$asset" ] && expected+=("assets/${asset#"$app_dir/assets/"}")
     done < <(find "$app_dir/assets" -type f 2>/dev/null)
 
-    deb=$(ls "${BUILD_DIR}/marine-${app_name}-container_"*.deb 2>/dev/null | head -1)
+    # Not `ls | head -1`: with a stale .deb beside the fresh one that picks by
+    # name order, so the check can pass against a package this build did not
+    # produce. Ambiguity is an error here, not a coin flip.
+    debs=()
+    while IFS= read -r found; do
+        [ -n "$found" ] && debs+=("$found")
+    done < <(find "${BUILD_DIR}" -maxdepth 1 -name "marine-${app_name}-container_*.deb" 2>/dev/null)
+
+    if [ ${#debs[@]} -gt 1 ]; then
+        echo "ERROR: ${app_name}: ${#debs[@]} .debs in ${BUILD_DIR}; cannot tell which is current" >&2
+        errors=$((errors + 1))
+        continue
+    fi
+
+    deb=""
+    if [ ${#debs[@]} -eq 1 ]; then
+        deb="${debs[0]}"
+    fi
+
     if [ -z "$deb" ]; then
         # Skipping silently is how this check would report success on a build that
         # produced nothing -- the failure it exists to catch.
