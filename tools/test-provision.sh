@@ -30,6 +30,23 @@ setup() {
     cat > "${SANDBOX}/bin/docker" <<'STUB'
 #!/bin/bash
 [ "${1:-}" = "rm" ] && exit 0
+
+if [ "${1:-}" = "image" ] && [ "${2:-}" = "inspect" ]; then
+    [ -f "${STUB_IMAGE_MARKER}" ]
+    exit $?
+fi
+
+if [ "${1:-}" = "pull" ]; then
+    echo "docker $*" >> "${STUB_LOG}"
+    if [ -n "${STUB_PULL_MISSING:-}" ]; then
+        echo "Error response from daemon: manifest unknown"
+        exit 1
+    fi
+    [ -n "${STUB_PULL_FAIL:-}" ] && { echo "net/http: TLS handshake timeout"; exit 1; }
+    : > "${STUB_IMAGE_MARKER}"
+    exit 0
+fi
+
 echo "docker $*" >> "${STUB_LOG}"
 if [ -n "${STUB_NPM_404:-}" ]; then
     echo "npm error code E404"
@@ -63,10 +80,15 @@ STUB
     chmod 755 "${SANDBOX}/bin"/*
     STUB_LOG="${SANDBOX}/docker.log"; : > "${STUB_LOG}"
     STUB_PREFIX="${SANDBOX}/data/data"
-    export STUB_LOG STUB_PREFIX
+    # Present by default: most cases are about packages, not the image.
+    STUB_IMAGE_MARKER="${SANDBOX}/image-present"; : > "${STUB_IMAGE_MARKER}"
+    export STUB_LOG STUB_PREFIX STUB_IMAGE_MARKER
 }
 
-teardown() { rm -rf "${SANDBOX}"; unset STUB_OFFLINE STUB_NPM_FAIL STUB_NPM_404; }
+teardown() {
+    rm -rf "${SANDBOX}"
+    unset STUB_OFFLINE STUB_NPM_FAIL STUB_NPM_404 STUB_PULL_FAIL STUB_PULL_MISSING
+}
 
 run_hook() {  # $1 = seconds to allow; echoes exit status
     PATH="${SANDBOX}/bin:${PATH}" CONTAINER_DATA_ROOT="${SANDBOX}/data" \
@@ -129,6 +151,30 @@ teardown
 setup "pkg-a"
 export STUB_NPM_FAIL=1
 check "transient install failure retries" "$(run_hook 3)" "124"
+teardown
+
+# The -core upgrade: every package is already there, and the image is not.
+setup "pkg-a"
+installed pkg-a
+rm -f "${STUB_IMAGE_MARKER}"
+check "a fully provisioned device still pulls a missing image" "$(run_hook 10)" "0"
+check "  exactly once" "$(grep -c '^docker pull' "${STUB_LOG}")" "1"
+check "  and installs nothing" "$(grep -c '^docker run' "${STUB_LOG}")" "0"
+teardown
+
+setup "pkg-a"
+rm -f "${STUB_IMAGE_MARKER}"
+export STUB_PULL_FAIL=1
+check "a failing pull retries (killed by timeout)" "$(run_hook 3)" "124"
+check "  and installs nothing meanwhile" "$(grep -c '^docker run' "${STUB_LOG}")" "0"
+teardown
+
+setup "pkg-a"
+rm -f "${STUB_IMAGE_MARKER}"
+export STUB_PULL_MISSING=1
+check "an image that does not exist gives up" "$(run_hook 10)" "1"
+grep -q "does not exist in the registry" "${SANDBOX}/out" &&
+    ok "  and says so" || bad "  and says so" "$(tail -2 "${SANDBOX}/out")"
 teardown
 
 setup "# only a comment" "" "pkg-a  " "pkg-a"

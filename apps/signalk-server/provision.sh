@@ -31,6 +31,10 @@ HALOS_PROVISION_CONTAINER="${HALOS_PROVISION_CONTAINER:-marine-signalk-server-co
 # ~72s cold and the slowest single package is @signalk/charts-plugin at ~39s.
 PACKAGE_TIMEOUT=180
 
+# The image is ~400 MB and an upgrade pulls it whole. Generous because a killed
+# pull is not wasted -- completed layers stay cached, so each retry resumes.
+IMAGE_PULL_TIMEOUT=1800
+
 # Retry backoff for conditions that can resolve by waiting, capped so a boat
 # without an uplink is not spinning. There is no overall deadline: the app is
 # gated on this hook, so giving up on a transient fault would strand it.
@@ -78,6 +82,28 @@ prepare_paths() {
     [ -f "${NPM_MANIFEST}" ] &&
         chown "${CONTAINER_UID}:${CONTAINER_GID}" "${NPM_MANIFEST}"
     return 0
+}
+
+# The app unit is gated on this hook, so the image it needs is this hook's job to
+# have. Without it the pull lands in the app's ExecStart instead, where five
+# failures inside StartLimitIntervalSec leave a unit that does not self-heal --
+# and no deployed device has the -core image cached, so every upgrade takes that
+# path. Same three-way result as install_package.
+ensure_image() {
+    local out status
+    docker image inspect "${SIGNALK_IMAGE}" >/dev/null 2>&1 && return 0
+
+    log "pulling ${SIGNALK_IMAGE}"
+    out="$(timeout -k 10 "${IMAGE_PULL_TIMEOUT}" docker pull "${SIGNALK_IMAGE}" 2>&1)"
+    status=$?
+    [ "${status}" -eq 0 ] && return 0
+
+    if grep -qE 'manifest unknown|manifest for .* not found|repository does not exist' <<<"${out}"; then
+        log "ERROR: ${SIGNALK_IMAGE} does not exist in the registry"
+        return 2
+    fi
+    log "pulling ${SIGNALK_IMAGE} failed (exit ${status}); will retry"
+    return 1
 }
 
 registry_reachable() {
@@ -130,6 +156,22 @@ attempt=0
 
 while true; do
     attempt=$((attempt + 1))
+
+    # Ahead of the all-present short-circuit: an upgraded device has every
+    # package already and still needs the image.
+    ensure_image
+    case $? in
+        1)
+            log "image unavailable; retrying in ${delay}s"
+            sleep "${delay}"
+            delay=$(( delay * 2 > RETRY_MAX ? RETRY_MAX : delay * 2 ))
+            continue
+            ;;
+        2)
+            log "ERROR: giving up. Signal K cannot start without its image."
+            exit 1
+            ;;
+    esac
 
     missing=()
     for pkg in "${WANTED[@]}"; do
