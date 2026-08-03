@@ -30,6 +30,8 @@ architecture: all
 depends:
   - docker.io (>= 20.10) | docker-ce (>= 20.10)
   - python3-bcrypt
+  # provision.sh probes registry reachability before installing
+  - curl
 web_ui:
   enabled: true
   path: /

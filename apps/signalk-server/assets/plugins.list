@@ -1,6 +1,6 @@
 # Curated Signal K plugins and webapps for HaLOS Marine.
 #
-# prestart.sh installs any entry not already present in ~/.signalk/node_modules;
+# provision.sh installs any entry not already present in ~/.signalk/node_modules;
 # thereafter the Signal K app store updates each one individually (no deb rebuild).
 # One package per line. `#` starts a comment. Order matters: webapps first, so an
 # upgraded device gets its chartplotter back soonest.

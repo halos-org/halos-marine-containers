@@ -1,51 +1,49 @@
 #!/bin/bash
-# Seed the curated Signal K plugin/webapp set into the data volume.
+# Install the curated Signal K plugin/webapp set into the data volume.
 #
-# Executed by marine-signalk-server-container-provision.service before the app
-# starts, so the plugins are on disk when Signal K scans node_modules at server
-# startup. Runs on every app start, so it is a presence check first and an
-# installer second. See the Provisioning Hook contract in container-packaging-tools.
+# Executed by marine-signalk-server-container-provision.service, which the app
+# Requires=, so Signal K does not start until this exits 0. The plugins are part
+# of the product; a server running without them is a degraded install, not a
+# working one. See the Provisioning Hook contract in container-packaging-tools.
 #
-# The plugins are ordinary npm packages, so Signal K's own app store updates them
-# individually afterwards with no deb rebuild. Present packages are skipped, which
-# is what keeps an app-store-updated plugin from being downgraded.
+# Nothing outside this script retries it, so it retries internally: transient
+# conditions sleep and try again, and only a failure that waiting cannot fix
+# exits non-zero. The plugins are ordinary npm packages, so Signal K's app store
+# updates them individually afterwards; anything already present is left alone,
+# which is what keeps an app-store-updated plugin from being downgraded.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="${SCRIPT_DIR}/assets/plugins.list"
 SIGNALK_DATA="${CONTAINER_DATA_ROOT}/data"
 NPM_CACHE="${CONTAINER_DATA_ROOT}/npm-cache"
+NPM_MANIFEST="${SIGNALK_DATA}/package.json"
 
-# The container runs as node (uid 1000) and npm writes as that user.
+# The container runs as node, and npm writes the tree as that user.
 CONTAINER_UID=1000
 CONTAINER_GID=1000
 
-# Per-package stop-loss, and a total wall-clock budget for the whole run. The app's
-# start job waits on this unit, so the budget bounds how long a boot is delayed;
-# whatever does not fit is picked up on the next start.
-#
-# Measured on a CM5 (the HALPI2 class) over a normal connection: the full 17-package
-# set takes ~72s cold, and the slowest single package is @signalk/charts-plugin at
-# ~39s. These leave roughly 4x margin on both without letting a pathological run
-# hold the app for many minutes.
+# Set by the provisioning unit. Defaulted so running this by hand does not abort
+# under `set -u` after the directory work has already happened.
+HALOS_PROVISION_CONTAINER="${HALOS_PROVISION_CONTAINER:-marine-signalk-server-container-provision}"
+
+# Per-package stop-loss. Measured on a CM5 (the HALPI2 class): the full set takes
+# ~72s cold and the slowest single package is @signalk/charts-plugin at ~39s.
 PACKAGE_TIMEOUT=180
-BUDGET=300
 
-[ -f "${MANIFEST}" ] || { echo "no manifest at ${MANIFEST}; nothing to provision"; exit 0; }
+# Retry backoff for conditions that can resolve by waiting, capped so a boat
+# without an uplink is not spinning. There is no overall deadline: the app is
+# gated on this hook, so giving up on a transient fault would strand it.
+RETRY_MIN=10
+RETRY_MAX=300
 
-SIGNALK_IMAGE="$(grep -oP 'image:\s*\K\S+' "${SCRIPT_DIR}/docker-compose.yml" | head -1)"
-[ -n "${SIGNALK_IMAGE}" ] || { echo "WARNING: no image in docker-compose.yml; skipping"; exit 0; }
+log() { echo "provision: $*"; }
 
-# A package counts as installed when its package.json names it. Bare directory
-# existence marks a power-loss-truncated install as done forever.
-is_installed() {
-    local pkg="$1" pkg_json="${SIGNALK_DATA}/node_modules/$1/package.json"
-    [ -f "${pkg_json}" ] && grep -q "\"name\"[[:space:]]*:[[:space:]]*\"${pkg}\"" "${pkg_json}"
-}
+[ -f "${MANIFEST}" ] || { log "no manifest at ${MANIFEST}; nothing to do"; exit 0; }
 
+# Strips comments and CR (a Windows-edited manifest would otherwise make every
+# entry "name\r"); the || guard keeps a final line that lacks a newline.
 read_manifest() {
-    # Strips comments and CR (a Windows-edited manifest would otherwise make every
-    # entry "name\r"); the || guard keeps a final line that lacks a newline.
     local line pkg
     while IFS= read -r line || [ -n "${line}" ]; do
         pkg="${line%%#*}"
@@ -56,74 +54,126 @@ read_manifest() {
     done < "${MANIFEST}"
 }
 
-mapfile -t WANTED < <(read_manifest)
-MISSING=()
-for pkg in "${WANTED[@]}"; do
-    is_installed "${pkg}" || MISSING+=("${pkg}")
-done
+# Two conditions, because either alone is satisfiable by a broken tree. npm
+# extracts a package's own package.json first, so a reify killed mid-extraction
+# leaves that file matching over an incomplete directory; and npm records the
+# dependency in the prefix's package.json only once the install completes.
+is_installed() {
+    local pkg="$1" pkg_json="${SIGNALK_DATA}/node_modules/$1/package.json"
+    [ -f "${pkg_json}" ] || return 1
+    grep -q "\"name\"[[:space:]]*:[[:space:]]*\"${pkg}\"" "${pkg_json}" || return 1
+    [ -f "${NPM_MANIFEST}" ] || return 1
+    grep -q "\"${pkg}\"[[:space:]]*:" "${NPM_MANIFEST}"
+}
 
-# The common case by far: everything is already present, so this must stay cheap.
-if [ ${#MISSING[@]} -eq 0 ]; then
-    echo "all ${#WANTED[@]} curated packages present"
-    exit 0
-fi
+# Hand over every path npm needs to write. Nothing upstream guarantees this: the
+# app declares no compose `user:`, so postinst creates the data root as root, and
+# the pi-gen SK-plugin stages and signalk-halpi's postinst both create
+# node_modules root-owned (halos-org/halos-pi-gen-template#5). npm then fails
+# EACCES for every package, forever, on an imaged device.
+prepare_paths() {
+    mkdir -p "${SIGNALK_DATA}/node_modules" "${NPM_CACHE}"
+    chown "${CONTAINER_UID}:${CONTAINER_GID}" \
+        "${SIGNALK_DATA}" "${SIGNALK_DATA}/node_modules" "${NPM_CACHE}"
+    [ -f "${NPM_MANIFEST}" ] &&
+        chown "${CONTAINER_UID}:${CONTAINER_GID}" "${NPM_MANIFEST}"
+    return 0
+}
 
-# Fail fast when there is no route to the registry. Without this, each missing
-# package burns its own timeout on DNS before failing, turning an offline boot
-# into a multi-minute delay for work that cannot succeed.
-if ! timeout 5 getent hosts registry.npmjs.org >/dev/null 2>&1; then
-    echo "registry.npmjs.org does not resolve; skipping ${#MISSING[@]} package(s) until the next start"
-    exit 0
-fi
-if ! timeout 10 curl -sfI https://registry.npmjs.org/ >/dev/null 2>&1; then
-    echo "registry.npmjs.org resolves but is unreachable; skipping ${#MISSING[@]} package(s) until the next start"
-    exit 0
-fi
-
-# Nothing upstream guarantees these exist with container-user ownership: postinst
-# derives it from the compose service's `user:` field, which this app does not set,
-# and the app's prestart (where the blanket chown lives) has not run yet.
-mkdir -p "${SIGNALK_DATA}" "${NPM_CACHE}"
-chown "${CONTAINER_UID}:${CONTAINER_GID}" "${SIGNALK_DATA}" "${NPM_CACHE}"
-
-# A previous run killed at its start timeout can leave this behind still writing to
-# the volume. The unit's ExecStopPost reaps the same name on that path.
-docker rm -f "${HALOS_PROVISION_CONTAINER}" >/dev/null 2>&1 || true
-
-echo "provisioning ${#MISSING[@]} of ${#WANTED[@]} curated packages"
-started=${SECONDS}
-installed=0
-deferred=0
-
-for pkg in "${MISSING[@]}"; do
-    elapsed=$((SECONDS - started))
-    if [ "${elapsed}" -ge "${BUDGET}" ]; then
-        deferred=$((deferred + 1))
-        continue
+registry_reachable() {
+    if ! command -v curl >/dev/null 2>&1; then
+        # Cannot probe, so do not claim to know. Let the install attempt report.
+        return 0
     fi
+    timeout 5 getent hosts registry.npmjs.org >/dev/null 2>&1 || return 1
+    timeout 10 curl -sfI https://registry.npmjs.org/ >/dev/null 2>&1
+}
 
-    echo "installing ${pkg}"
-    if timeout "${PACKAGE_TIMEOUT}" docker run --rm \
+# Returns 0 installed, 1 transient failure, 2 the registry says it will never
+# exist. Only the last is worth giving up over.
+install_package() {
+    local pkg="$1" out status
+    docker rm -f "${HALOS_PROVISION_CONTAINER}" >/dev/null 2>&1 || true
+    out="$(timeout -k 10 "${PACKAGE_TIMEOUT}" docker run --rm \
         --name "${HALOS_PROVISION_CONTAINER}" \
         --entrypoint npm \
         -v "${SIGNALK_DATA}:/home/node/.signalk" \
         -v "${NPM_CACHE}:/home/node/.npm" \
         -u "${CONTAINER_UID}:${CONTAINER_GID}" \
         "${SIGNALK_IMAGE}" \
-        install --prefix /home/node/.signalk --cache /home/node/.npm "${pkg}"; then
-        installed=$((installed + 1))
+        install --prefix /home/node/.signalk --cache /home/node/.npm "${pkg}" 2>&1)"
+    status=$?
+    [ "${status}" -eq 0 ] && return 0
+
+    # The client can be killed while the container keeps writing to the volume.
+    docker rm -f "${HALOS_PROVISION_CONTAINER}" >/dev/null 2>&1 || true
+
+    if grep -qE 'E404|404 Not Found|is not in the npm registry' <<<"${out}"; then
+        log "ERROR: ${pkg} does not exist in the registry"
+        return 2
+    fi
+    log "${pkg} failed (exit ${status}); will retry"
+    return 1
+}
+
+# Plain sed, not `grep -oP`: PCRE is a GNU extension, and on any other grep the
+# match silently yields nothing rather than failing.
+SIGNALK_IMAGE="$(sed -n 's/^[[:space:]]*image:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+    "${SCRIPT_DIR}/docker-compose.yml" | head -1)"
+[ -n "${SIGNALK_IMAGE}" ] || { log "ERROR: no image in docker-compose.yml"; exit 1; }
+
+mapfile -t WANTED < <(read_manifest)
+[ ${#WANTED[@]} -gt 0 ] || { log "manifest is empty; nothing to do"; exit 0; }
+
+delay=${RETRY_MIN}
+attempt=0
+
+while true; do
+    attempt=$((attempt + 1))
+
+    missing=()
+    for pkg in "${WANTED[@]}"; do
+        is_installed "${pkg}" || missing+=("${pkg}")
+    done
+
+    if [ ${#missing[@]} -eq 0 ]; then
+        [ "${attempt}" -eq 1 ] &&
+            log "all ${#WANTED[@]} curated packages present" ||
+            log "provisioning complete after ${attempt} attempts"
+        exit 0
+    fi
+
+    prepare_paths
+
+    if ! registry_reachable; then
+        log "registry unreachable; retrying in ${delay}s (${#missing[@]} package(s) outstanding)"
+        sleep "${delay}"
+        delay=$(( delay * 2 > RETRY_MAX ? RETRY_MAX : delay * 2 ))
+        continue
+    fi
+
+    log "attempt ${attempt}: installing ${#missing[@]} of ${#WANTED[@]} curated packages"
+    progressed=0
+    for pkg in "${missing[@]}"; do
+        log "installing ${pkg}"
+        install_package "${pkg}"
+        case $? in
+            0) progressed=1 ;;
+            2)
+                log "ERROR: giving up. ${pkg} cannot be installed by waiting, so"
+                log "ERROR: Signal K will not start until the manifest is corrected."
+                exit 1
+                ;;
+        esac
+    done
+
+    # Reset the backoff whenever something landed, so a slow link that installs
+    # one package per pass is not punished for making progress.
+    if [ "${progressed}" -eq 1 ]; then
+        delay=${RETRY_MIN}
     else
-        # timeout kills the client; the container keeps running without this.
-        docker rm -f "${HALOS_PROVISION_CONTAINER}" >/dev/null 2>&1 || true
-        echo "WARNING: ${pkg} failed or timed out; retrying on the next start"
+        log "no package installed this attempt; retrying in ${delay}s"
+        sleep "${delay}"
+        delay=$(( delay * 2 > RETRY_MAX ? RETRY_MAX : delay * 2 ))
     fi
 done
-
-if [ "${deferred}" -gt 0 ]; then
-    echo "budget of ${BUDGET}s reached; ${deferred} package(s) deferred to the next start"
-fi
-echo "provisioning done: ${installed} installed, $(( ${#MISSING[@]} - installed )) still missing"
-
-# Always succeed: a missing package is retried next start, and a failed unit would
-# only report a degraded system for a condition that is not a fault.
-exit 0

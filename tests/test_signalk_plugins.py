@@ -6,6 +6,7 @@ silently, so the manifest is validated here instead.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -77,6 +78,21 @@ def test_scripts_are_executable(script):
     assert APP_DIR.joinpath(script).stat().st_mode & 0o111
 
 
+def test_provision_hook_behaves(tmp_path):
+    """Run the hook against stubbed docker/getent/curl.
+
+    Everything that decides whether a boot costs nothing or blocks Signal K
+    indefinitely lives in that script, and no assertion on its text reaches it.
+    """
+    harness = Path(__file__).parent.parent / "tools" / "test-provision.sh"
+
+    result = subprocess.run(
+        ["bash", str(harness)], capture_output=True, text=True, timeout=180
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_prestart_no_longer_seeds_plugins():
     """Seeding moved to provision.sh so it runs outside the app unit's start
     path. If it reappears here it is back inside the blocking ExecStartPre whose
@@ -89,12 +105,22 @@ def test_prestart_no_longer_seeds_plugins():
 
 
 def test_prestart_chown_is_scoped():
-    """A recursive chown of the data root walks the whole plugin tree and the npm
-    cache on every boot, inside the same start budget the seeding was moved out
-    of ExecStartPre to protect."""
+    """A recursive chown over any ancestor of node_modules walks the whole plugin
+    tree and the npm cache on every boot, inside the app unit's start budget.
+
+    Asserted as a property: matching one literal spelling let
+    `chown -R 1000:1000 "${SIGNALK_DATA}"` through, which is the same recursive
+    walk because SIGNALK_DATA contains node_modules.
+    """
     prestart = (APP_DIR / "prestart.sh").read_text()
 
-    assert 'chown -R 1000:1000 "${CONTAINER_DATA_ROOT}"' not in prestart
+    recursive_targets = re.findall(r"chown\s+-R\s+\S+\s+(\S+)", prestart)
+    forbidden = {"CONTAINER_DATA_ROOT", "SIGNALK_DATA"}
+    for target in recursive_targets:
+        referenced = set(re.findall(r"\$\{?(\w+)", target))
+        assert not (referenced & forbidden), (
+            f"recursive chown over {target} walks node_modules"
+        )
 
 
 def test_provision_uses_the_framework_container_name():

@@ -37,7 +37,7 @@ if command -v uvx >/dev/null 2>&1; then
     # The apps require the composable-prestart + declarative-OIDC capabilities,
     # so the default is pinned to a release tag rather than tracking main.
     TOOLS_PATH="${CONTAINER_TOOLS_PATH:-}"
-    TOOLS_REF="${CONTAINER_TOOLS_REF:-v0.9.0+1}"
+    TOOLS_REF="${CONTAINER_TOOLS_REF:-v0.10.0+1}"
     if [ -n "$TOOLS_PATH" ]; then
         TOOLS_SOURCE="$TOOLS_PATH"
         echo "Using local container-packaging-tools from: $TOOLS_PATH"
