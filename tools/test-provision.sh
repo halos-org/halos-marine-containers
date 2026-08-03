@@ -95,6 +95,11 @@ json.dump(d, open(p, "w"))
 PY
 exit 0
 STUB
+    cat > "${SANDBOX}/bin/dpkg-query" <<'STUB'
+#!/bin/bash
+[ -n "${STUB_PKG_VERSION:-}" ] || exit 1
+echo -n "${STUB_PKG_VERSION}"
+STUB
     cat > "${SANDBOX}/bin/getent" <<'STUB'
 #!/bin/bash
 [ -n "${STUB_OFFLINE:-}" ] && exit 2
@@ -111,8 +116,12 @@ STUB
     # Present by default: most cases are about packages, not the image.
     STUB_IMAGE_MARKER="${SANDBOX}/image-present"; : > "${STUB_IMAGE_MARKER}"
     STUB_EXPECT_IMAGE="test/signalk:v1"   # matches the compose fixture above
-    export STUB_LOG STUB_PREFIX STUB_IMAGE_MARKER STUB_EXPECT_IMAGE
+    STUB_PKG_VERSION="${STUB_PKG_VERSION:-2.30.0-3}"
+    export STUB_LOG STUB_PREFIX STUB_IMAGE_MARKER STUB_EXPECT_IMAGE STUB_PKG_VERSION
+    MARKER="${SANDBOX}/data/.provisioned"
 }
+
+provisioned_for() { printf '%s\n' "$1" > "${MARKER}"; }
 
 teardown() {
     rm -rf "${SANDBOX}"
@@ -204,6 +213,37 @@ export STUB_PULL_MISSING=1
 check "an image that does not exist gives up" "$(run_hook 10)" "1"
 grep -q "does not exist in the registry" "${SANDBOX}/out" &&
     ok "  and says so" || bad "  and says so" "$(tail -2 "${SANDBOX}/out")"
+teardown
+
+# The gate binds to the package transaction. Fresh install and upgrade must
+# complete; an ordinary boot must not hold Signal K behind the registry.
+setup "pkg-a"
+export STUB_OFFLINE=1
+check "fresh install holds the gate offline (killed by timeout)" "$(run_hook 3)" "124"
+teardown
+
+setup "pkg-a"
+provisioned_for 2.30.0-2          # last provisioned by the previous .deb
+export STUB_OFFLINE=1
+check "an upgrade re-arms the gate" "$(run_hook 3)" "124"
+teardown
+
+setup "pkg-a"
+provisioned_for 2.30.0-3          # already provisioned for the installed .deb
+export STUB_OFFLINE=1
+check "an ordinary boot skips provisioning" "$(run_hook 10)" "0"
+check "  touching docker not at all" "$(wc -l < "${STUB_LOG}" | tr -d ' ')" "0"
+
+# A plugin the operator removed through the app store must stay removed.
+setup "pkg-a"
+provisioned_for 2.30.0-3
+check "  and does not reinstate a removed package" "$(run_hook 10)" "0"
+check "    with no install" "$(grep -c '^docker run' "${STUB_LOG}")" "0"
+teardown
+
+setup "pkg-a"
+check "provisioning records the package version" "$(run_hook 10)" "0"
+check "  in the marker" "$(cat "${MARKER}" 2>/dev/null)" "2.30.0-3"
 teardown
 
 setup "# only a comment" "" "pkg-a  " "pkg-a"

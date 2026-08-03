@@ -6,7 +6,9 @@
 # of the product; a server running without them is a degraded install, not a
 # working one. See the Provisioning Hook contract in container-packaging-tools.
 #
-# Nothing outside this script retries it, so it retries internally: transient
+# That requirement belongs to the package transaction: an install or an upgrade
+# must provision completely, and every other boot exits immediately. Nothing
+# outside this script retries it, so it retries internally -- transient
 # conditions sleep and try again, and only a failure that waiting cannot fix
 # exits non-zero. The plugins are ordinary npm packages, so Signal K's app store
 # updates them individually afterwards; anything already present is left alone,
@@ -36,14 +38,53 @@ PACKAGE_TIMEOUT=180
 IMAGE_PULL_TIMEOUT=1800
 
 # Retry backoff for conditions that can resolve by waiting, capped so a boat
-# without an uplink is not spinning. There is no overall deadline: the app is
-# gated on this hook, so giving up on a transient fault would strand it.
+# without an uplink is not spinning. No overall deadline: only a gated run gets
+# this far, and giving up on a transient fault would strand the upgrade.
 RETRY_MIN=10
 RETRY_MAX=300
+
+# Provisioning is a hard requirement of the package transaction, not of every
+# boot. A fresh install or an upgrade must complete before Signal K starts; an
+# ordinary boot must not put the navigation server behind the npm registry. The
+# installed package version is the transaction marker, so any new .deb -- one
+# that only edits the manifest included -- re-arms the gate.
+PACKAGE_NAME="$(basename "$(dirname "${CONTAINER_DATA_ROOT}")")"
+PROVISIONED_MARKER="${CONTAINER_DATA_ROOT}/.provisioned"
+
+installed_version() { dpkg-query -W -f='${Version}' "${PACKAGE_NAME}" 2>/dev/null; }
+
+# 0 = this run must finish before the app may start.
+gate_armed() {
+    local installed marker
+    installed="$(installed_version)"
+    # Unable to tell which version is installed: hold the gate rather than let a
+    # half-provisioned upgrade through.
+    [ -n "${installed}" ] || return 0
+    # No marker reads as an empty version, which never matches.
+    marker="$(cat "${PROVISIONED_MARKER}" 2>/dev/null)"
+    [ "${marker}" = "${installed}" ] && return 1 || return 0
+}
+
+mark_provisioned() {
+    local installed
+    installed="$(installed_version)"
+    [ -n "${installed}" ] && printf '%s\n' "${installed}" > "${PROVISIONED_MARKER}"
+    return 0
+}
+
 
 log() { echo "provision: $*"; }
 
 [ -f "${MANIFEST}" ] || { log "no manifest at ${MANIFEST}; nothing to do"; exit 0; }
+
+# Nothing to do on an ordinary boot: this package version already provisioned
+# successfully, so the app starts without touching docker or the registry. A
+# plugin the operator has since removed through the app store stays removed
+# until the next .deb re-arms the gate.
+if ! gate_armed; then
+    log "already provisioned for $(installed_version); nothing to do"
+    exit 0
+fi
 
 # Strips comments and CR (a Windows-edited manifest would otherwise make every
 # entry "name\r"); the || guard keeps a final line that lacks a newline.
@@ -186,6 +227,7 @@ while true; do
         [ "${attempt}" -eq 1 ] &&
             log "all ${#WANTED[@]} curated packages present" ||
             log "provisioning complete after ${attempt} attempts"
+        mark_provisioned
         exit 0
     fi
 
