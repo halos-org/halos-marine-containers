@@ -223,6 +223,25 @@ volumes under a temp directory, and never touches `/etc` or a device. Run it
 after changing `apps/influxdb/prestart.sh`; it is not part of CI because it
 pulls and boots the InfluxDB image.
 
+### Signal K Provisioning and Prestart Hooks
+
+`apps/signalk-server/provision.sh` and `prestart.sh` have bash harnesses that
+stub everything external, so they need no Docker, no network and no root:
+
+```bash
+./tools/test-provision.sh    # stubbed docker + dpkg-query
+./tools/test-prestart.sh     # stubbed chown + bcrypt
+```
+
+Unlike the InfluxDB harness these run in CI -- `tests/test_signalk_plugins.py`
+invokes both. They need bash 4+ and GNU coreutils (`timeout`, `mapfile`), so a
+stock macOS shell cannot run them; use the repo's own CI or a Linux container.
+
+`apps/signalk-server/assets/plugins.list` is load-bearing: an entry the npm
+registry will never serve makes provisioning exit non-zero, and Signal K is
+ordered behind it after an install or upgrade. Edit it with that in mind --
+`test_entries_exist_in_the_registry` checks every entry against the registry.
+
 ### Authentication Negative Tests
 
 For testing that invalid authentication attempts are properly rejected (malformed tokens, expired tokens, OIDC callback validation, etc.), use the generic test script in the signalk-server repository:

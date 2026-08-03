@@ -8,9 +8,23 @@
 
 SIGNALK_DATA="${CONTAINER_DATA_ROOT}/data"
 SECURITY_FILE="${SIGNALK_DATA}/security.json"
+PLUGIN_CONFIG_DIR="${SIGNALK_DATA}/plugin-config-data"
+PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
 
 # Create data directory if needed
 mkdir -p "${SIGNALK_DATA}"
+
+# Earlier versions created both of these 0644, so every already-deployed device
+# carries the admin hash, the JWT signing key and the InfluxDB admin token in a
+# world-readable file. Restricted here rather than only at creation, because on
+# those devices the file already exists. Everything created below is written
+# restricted in the first place.
+if [ -f "${SECURITY_FILE}" ]; then
+    chmod 600 "${SECURITY_FILE}"
+fi
+if [ -f "${PLUGIN_CONFIG}" ]; then
+    chmod 600 "${PLUGIN_CONFIG}"
+fi
 
 # Only create security.json if it doesn't exist
 if [ ! -f "${SECURITY_FILE}" ]; then
@@ -26,7 +40,10 @@ if [ ! -f "${SECURITY_FILE}" ]; then
     # Generate a secret key for JWT tokens
     SECRET_KEY=$(openssl rand -hex 32)
 
-    # Create security.json
+    # Holds the admin bcrypt hash and the JWT signing key. Restricted before the
+    # first write rather than after, so the secrets never sit in a 0644 file.
+    touch "${SECURITY_FILE}"
+    chmod 600 "${SECURITY_FILE}"
     cat > "${SECURITY_FILE}" << EOF
 {
   "strategy": "./tokensecurity",
@@ -50,8 +67,9 @@ EOF
     echo "This is a fallback for emergency access. Use OIDC for regular login."
 
     # Store the password for emergency recovery
-    echo "${ADMIN_PASSWORD}" > "${CONTAINER_DATA_ROOT}/admin-password"
+    touch "${CONTAINER_DATA_ROOT}/admin-password"
     chmod 600 "${CONTAINER_DATA_ROOT}/admin-password"
+    echo "${ADMIN_PASSWORD}" > "${CONTAINER_DATA_ROOT}/admin-password"
 fi
 
 # Signal K advertises its external URL via mDNS from these. EXTERNALHOST strips
@@ -66,35 +84,23 @@ EXTERNAL_PORT="$(grep '^signalk-server=' /etc/halos/port-registry 2>/dev/null | 
     echo "EXTERNALSSL=1"
 } >> "$RUNTIME_ENV"
 
-# --- InfluxDB plugin provisioning ---
+# --- InfluxDB plugin configuration ---
+# signalk-to-influxdb2 is installed by provision.sh, which the app unit requires,
+# so it is present unless the operator removed it through the app store. The
+# token lives in the InfluxDB container's env and is rewritten here on every
+# start, because rotating it there must reach this config.
+INFLUXDB_ENV="${INFLUXDB_ENV:-/etc/container-apps/marine-influxdb-container/env}"
 
-INFLUXDB_ENV="/etc/container-apps/marine-influxdb-container/env"
-PLUGIN_CONFIG_DIR="${SIGNALK_DATA}/plugin-config-data"
-PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-if [ -f "${INFLUXDB_ENV}" ]; then
+if [ -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ] && [ -f "${INFLUXDB_ENV}" ]; then
     INFLUXDB_ADMIN_TOKEN=$(grep '^INFLUXDB_ADMIN_TOKEN=' "${INFLUXDB_ENV}" | cut -d= -f2-)
 
     if [ -n "${INFLUXDB_ADMIN_TOKEN}" ]; then
-        # Install plugin if not already present
-        if [ ! -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ]; then
-            SIGNALK_IMAGE=$(grep -oP 'image:\s*\K\S+' "${SCRIPT_DIR}/docker-compose.yml" | head -1)
-            echo "Installing signalk-to-influxdb2 plugin..."
-            if timeout 120 docker run --rm --entrypoint npm \
-                -v "${SIGNALK_DATA}:/home/node/.signalk" \
-                -u 1000:1000 \
-                "${SIGNALK_IMAGE}" \
-                install --prefix /home/node/.signalk signalk-to-influxdb2; then
-                echo "Plugin installed successfully"
-            else
-                echo "WARNING: Failed to install signalk-to-influxdb2 (no internet?). Will retry on next restart."
-            fi
-        fi
-
         # Write plugin config (first time only) or update token
         mkdir -p "${PLUGIN_CONFIG_DIR}"
         if [ ! -f "${PLUGIN_CONFIG}" ]; then
+            # Carries the InfluxDB admin token.
+            touch "${PLUGIN_CONFIG}"
+            chmod 600 "${PLUGIN_CONFIG}"
             cat > "${PLUGIN_CONFIG}" << PLUGINEOF
 {
   "enabled": true,
@@ -115,16 +121,17 @@ PLUGINEOF
             echo "InfluxDB plugin configured"
         else
             # Update token in existing config without overwriting other settings
-            if python3 -c "
-import json, sys
-with open('${PLUGIN_CONFIG}', 'r') as f:
+            if INFLUX_TOKEN="${INFLUXDB_ADMIN_TOKEN}" python3 - "${PLUGIN_CONFIG}" <<'PYEOF'; then
+import json, os, sys
+path = sys.argv[1]
+with open(path) as f:
     cfg = json.load(f)
 influxes = cfg.get('configuration', {}).get('influxes', [])
 if influxes:
-    influxes[0]['token'] = '${INFLUXDB_ADMIN_TOKEN}'
-with open('${PLUGIN_CONFIG}', 'w') as f:
+    influxes[0]['token'] = os.environ['INFLUX_TOKEN']
+with open(path, 'w') as f:
     json.dump(cfg, f, indent=2)
-"; then
+PYEOF
                 echo "InfluxDB plugin token updated"
             else
                 echo "WARNING: Failed to update InfluxDB token in plugin config"
@@ -133,7 +140,16 @@ with open('${PLUGIN_CONFIG}', 'w') as f:
     fi
 fi
 
-# Ensure data directory is owned by node user (UID 1000)
-# settings.json is installed via default-data/ at package install time
-# The container runs as node:node, but prestart runs as root
-chown -R 1000:1000 "${CONTAINER_DATA_ROOT}"
+# The container runs as node:node while this script runs as root, so what root
+# creates here has to be handed over. Named paths only: a recursive chown of the
+# data root walks the curated plugin tree and the npm cache on every boot, and
+# node_modules and npm-cache are written by the container as uid 1000 anyway.
+# -h throughout: these live in a directory the container can write, so following
+# a symlink would let it choose which host path root hands over.
+chown -h 1000:1000 "${SIGNALK_DATA}"
+if [ -f "${SIGNALK_DATA}/settings.json" ]; then
+    chown -h 1000:1000 "${SIGNALK_DATA}/settings.json"
+fi
+if [ -d "${PLUGIN_CONFIG_DIR}" ]; then
+    chown -Rh 1000:1000 "${PLUGIN_CONFIG_DIR}"
+fi
