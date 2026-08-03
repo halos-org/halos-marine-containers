@@ -7,6 +7,8 @@ silently, so the manifest is validated here instead.
 
 import re
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -39,6 +41,20 @@ def test_manifest_is_packaged():
 def test_entries_are_valid_npm_names():
     for entry in manifest_entries():
         assert NPM_NAME.match(entry), f"not a valid npm package name: {entry!r}"
+
+
+def test_entries_exist_in_the_registry():
+    """A typo that is still a legal npm name passes every other check here, and
+    now stops the app: provision.sh gives up on a 404, and Signal K Requires=
+    that unit. One character in this file would otherwise take down every device
+    that has not already provisioned."""
+    for entry in manifest_entries():
+        url = f"https://registry.npmjs.org/{entry}"
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                assert response.status == 200, f"{entry}: HTTP {response.status}"
+        except urllib.error.HTTPError as exc:
+            raise AssertionError(f"{entry} is not in the npm registry") from exc
 
 
 def test_no_duplicate_entries():

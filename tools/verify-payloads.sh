@@ -23,17 +23,34 @@ checked=0
 for app_dir in "${REPO_ROOT}/apps"/*; do
     [ -d "$app_dir" ] || continue
     app_name=$(basename "$app_dir")
-    deb=$(ls "${BUILD_DIR}/marine-${app_name}-container_"*.deb 2>/dev/null | head -1)
-    [ -n "$deb" ] || continue
-
-    contents=$(dpkg-deb -c "$deb")
-    lib_dir="/var/lib/container-apps/marine-${app_name}-container"
-
     expected=()
     [ -f "$app_dir/provision.sh" ] && expected+=("provision.sh")
     while IFS= read -r asset; do
         [ -n "$asset" ] && expected+=("assets/${asset#"$app_dir/assets/"}")
     done < <(find "$app_dir/assets" -type f 2>/dev/null)
+
+    deb=$(ls "${BUILD_DIR}/marine-${app_name}-container_"*.deb 2>/dev/null | head -1)
+    if [ -z "$deb" ]; then
+        # Skipping silently is how this check would report success on a build that
+        # produced nothing -- the failure it exists to catch.
+        if [ ${#expected[@]} -gt 0 ]; then
+            echo "ERROR: ${app_name} has payload to verify but no .deb was built" >&2
+            errors=$((errors + 1))
+        fi
+        continue
+    fi
+
+    contents=$(dpkg-deb -c "$deb")
+    lib_dir="/var/lib/container-apps/marine-${app_name}-container"
+
+    if [ -f "$app_dir/provision.sh" ]; then
+        checked=$((checked + 1))
+        unit="/etc/systemd/system/marine-${app_name}-container-provision.service"
+        if ! grep -q "${unit}\$" <<<"$contents"; then
+            echo "ERROR: ${app_name}: ships provision.sh but no provisioning unit" >&2
+            errors=$((errors + 1))
+        fi
+    fi
 
     for path in ${expected+"${expected[@]}"}; do
         checked=$((checked + 1))
@@ -46,6 +63,11 @@ done
 
 if [ "$errors" -gt 0 ]; then
     echo "ERROR: ${errors} expected file(s) missing from built packages" >&2
+    exit 1
+fi
+
+if [ "$checked" -eq 0 ]; then
+    echo "ERROR: verified nothing -- no app payload was found to check" >&2
     exit 1
 fi
 
