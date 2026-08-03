@@ -29,7 +29,6 @@ signalk-polar-performance-plugin
 signalk-anchoralarm-plugin
 
 # Sensors / misc
-signalk-victron-ble
 signalk-flags
 
 # Logging (configured with the InfluxDB token by prestart)

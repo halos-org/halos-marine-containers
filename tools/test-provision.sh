@@ -54,13 +54,41 @@ if [ -n "${STUB_NPM_404:-}" ]; then
     exit 1
 fi
 [ -n "${STUB_NPM_FAIL:-}" ] && { echo "npm error network"; exit 1; }
-# Success: create what a real install leaves behind.
+
+# Everything below derives the install from the arguments actually passed. A stub
+# that writes to a known-good path instead would install successfully no matter
+# what mount, prefix or uid the hook asked for.
 pkg="${@: -1}"
-mkdir -p "${STUB_PREFIX}/node_modules/${pkg}"
-printf '{"name":"%s","version":"1.0.0"}\n' "${pkg}" > "${STUB_PREFIX}/node_modules/${pkg}/package.json"
-python3 - "$pkg" <<'PY'
+prefix=""; user=""; image=""; cache_mounted=""; mounts=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -v)       mounts+=("$2"); [ "${2##*:}" = "/home/node/.npm" ] && cache_mounted=1; shift 2 ;;
+        -u)       user="$2"; shift 2 ;;
+        --prefix) prefix="$2"; shift 2 ;;
+        install)  shift ;;
+        *)        [ -z "${image}" ] && [[ "$1" == *:* ]] && [[ "$1" != *"/home/node"* ]] && image="$1"
+                  shift ;;
+    esac
+done
+
+fail() { echo "STUB: $1"; exit 1; }
+[ "${user}" = "1000:1000" ] || fail "npm would run as '${user}', not the container user"
+[ "${image}" = "${STUB_EXPECT_IMAGE}" ] || fail "wrong image '${image}'"
+[ -n "${cache_mounted}" ] || fail "no npm cache mounted; every boot re-downloads"
+
+# Resolve the container-side --prefix back through the -v mounts to a host path.
+host_prefix=""
+for m in ${mounts+"${mounts[@]}"}; do
+    src="${m%%:*}"; dst="${m##*:}"
+    if [ "${prefix}" = "${dst}" ]; then host_prefix="${src}"; break; fi
+done
+[ -n "${host_prefix}" ] || fail "--prefix '${prefix}' is not a mounted path; nothing would reach the data volume"
+
+mkdir -p "${host_prefix}/node_modules/${pkg}"
+printf '{"name":"%s","version":"1.0.0"}\n' "${pkg}" > "${host_prefix}/node_modules/${pkg}/package.json"
+HOST_PREFIX="${host_prefix}" python3 - "$pkg" <<'PY'
 import json, os, sys
-p = os.path.join(os.environ["STUB_PREFIX"], "package.json")
+p = os.path.join(os.environ["HOST_PREFIX"], "package.json")
 d = json.load(open(p)) if os.path.exists(p) else {}
 d.setdefault("dependencies", {})[sys.argv[1]] = "^1.0.0"
 json.dump(d, open(p, "w"))
@@ -82,7 +110,8 @@ STUB
     STUB_PREFIX="${SANDBOX}/data/data"
     # Present by default: most cases are about packages, not the image.
     STUB_IMAGE_MARKER="${SANDBOX}/image-present"; : > "${STUB_IMAGE_MARKER}"
-    export STUB_LOG STUB_PREFIX STUB_IMAGE_MARKER
+    STUB_EXPECT_IMAGE="test/signalk:v1"   # matches the compose fixture above
+    export STUB_LOG STUB_PREFIX STUB_IMAGE_MARKER STUB_EXPECT_IMAGE
 }
 
 teardown() {

@@ -8,9 +8,9 @@ jobs:
   checks:
     uses: halos-org/shared-workflows/.github/workflows/pr-checks.yml@main
     with:
-      # This job is the only one that builds the packages, and the build runs
-      # tools/verify-payloads.sh -- the guard that catches an app file reaching
-      # no .deb. Skipping it left that guard running only after merge, which is
-      # how a curated plugin manifest once shipped in nothing. Lintian itself
-      # still runs at release; here it costs nothing extra once the .debs exist.
+      # This job is the only one that builds the packages, and the build is what
+      # runs tools/verify-payloads.sh -- the guard against an app file reaching
+      # no .deb. Enabled for the build, not for lintian: the lintian step globs
+      # *.deb in the checkout root while build-all.sh writes to build/, so it
+      # inspects nothing (halos-org/shared-workflows).
       skip-lintian: false

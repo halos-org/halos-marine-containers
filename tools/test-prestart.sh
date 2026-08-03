@@ -1,9 +1,12 @@
 #!/bin/bash
 # Exercise apps/signalk-server/prestart.sh with stubbed chown/bcrypt.
 #
-# The hook writes three files holding secrets and decides which paths change
-# owner. Both are properties of the filesystem after it runs, not of its text,
-# so this runs it against a sandbox: no root, no container, no InfluxDB.
+# The hook writes three files holding secrets. Their modes are a property of the
+# filesystem after it runs, not of the script's text, so this runs it against a
+# sandbox: no root, no container, no InfluxDB.
+#
+# Ownership is NOT covered: the run is unprivileged, so chown is stubbed out and
+# nothing here can observe a uid. Assert modes, not owners.
 #
 # Usage: tools/test-prestart.sh
 set -u
@@ -84,8 +87,7 @@ grep -q tok-fresh "${SK}/plugin-config-data/signalk-to-influxdb2.json" &&
     ok "  with the token" || bad "  with the token" "token missing from config"
 teardown
 
-# What an upgraded device looks like: files the old hook wrote 0644, and the two
-# root-only secrets it handed to uid 1000 with its recursive chown.
+# What an upgraded device looks like: the secret files the old hook wrote 0644.
 setup
 printf '{"secretKey":"old"}\n' > "${SK}/security.json"
 chmod 644 "${SK}/security.json"
@@ -106,17 +108,13 @@ grep -q '"secretKey": *"old"' "${SK}/security.json" &&
 grep -q tok-rotated "${SK}/plugin-config-data/signalk-to-influxdb2.json" &&
     ok "  influx token is refreshed" ||
     bad "  influx token is refreshed" "$(cat "${SK}/plugin-config-data/signalk-to-influxdb2.json")"
-grep -q "chown root:root ${DATA}/admin-password" "${STUB_LOG}" &&
-    ok "  admin-password goes back to root" || bad "  admin-password goes back to root" "$(cat "${STUB_LOG}")"
-grep -q "chown root:root ${DATA}/oidc-secret" "${STUB_LOG}" &&
-    ok "  oidc-secret goes back to root" || bad "  oidc-secret goes back to root" "$(cat "${STUB_LOG}")"
 teardown
 
 # The hook is sourced by the generated prestart, so a false test at the end of it
 # would become the whole unit's exit status.
 setup
 : > "${DATA}/admin-password"
-check "absent oidc-secret still exits 0" "$(run_hook)" "0"
+check "a partially-populated data root still exits 0" "$(run_hook)" "0"
 teardown
 
 printf '\n%s passed, %s failed\n' "${pass}" "${fail}"

@@ -14,23 +14,17 @@ PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
 # Create data directory if needed
 mkdir -p "${SIGNALK_DATA}"
 
-# Repair what earlier versions of this hook left behind. They created the secret
-# files world-readable and chowned the entire data root to the container user, so
-# a device that has been through an upgrade still carries the admin hash, the JWT
-# key and the InfluxDB token in 0644 files, and the two root-only secrets owned by
-# uid 1000 -- which is the host's `pi` on HaLOS. Everything created below this
-# point is written restricted in the first place.
+# Earlier versions created both of these 0644, so every already-deployed device
+# carries the admin hash, the JWT signing key and the InfluxDB admin token in a
+# world-readable file. Restricted here rather than only at creation, because on
+# those devices the file already exists. Everything created below is written
+# restricted in the first place.
 if [ -f "${SECURITY_FILE}" ]; then
     chmod 600 "${SECURITY_FILE}"
 fi
 if [ -f "${PLUGIN_CONFIG}" ]; then
     chmod 600 "${PLUGIN_CONFIG}"
 fi
-for secret in admin-password oidc-secret; do
-    if [ -f "${CONTAINER_DATA_ROOT}/${secret}" ]; then
-        chown root:root "${CONTAINER_DATA_ROOT}/${secret}"
-    fi
-done
 
 # Only create security.json if it doesn't exist
 if [ ! -f "${SECURITY_FILE}" ]; then
@@ -144,19 +138,16 @@ with open('${PLUGIN_CONFIG}', 'w') as f:
     fi
 fi
 
-# The container runs as node:node while this script runs as root, so anything root
-# creates here has to be handed over. Only those paths: a recursive chown of the
-# whole data root would walk the curated plugin tree and the npm cache on every
-# boot, inside the start budget whose exhaustion this app's provisioning was moved
-# out of ExecStartPre to avoid. node_modules and npm-cache are written by the
-# container as uid 1000 already and need no handover.
-#
-# Deliberately not included: admin-password and oidc-secret. Neither is mounted
-# into the container, and the block above keeps them root-owned.
-chown 1000:1000 "${SIGNALK_DATA}"
+# The container runs as node:node while this script runs as root, so what root
+# creates here has to be handed over. Named paths only: a recursive chown of the
+# data root walks the curated plugin tree and the npm cache on every boot, and
+# node_modules and npm-cache are written by the container as uid 1000 anyway.
+# -h throughout: these live in a directory the container can write, so following
+# a symlink would let it choose which host path root hands over.
+chown -h 1000:1000 "${SIGNALK_DATA}"
 if [ -f "${SIGNALK_DATA}/settings.json" ]; then
-    chown 1000:1000 "${SIGNALK_DATA}/settings.json"
+    chown -h 1000:1000 "${SIGNALK_DATA}/settings.json"
 fi
 if [ -d "${PLUGIN_CONFIG_DIR}" ]; then
-    chown -R 1000:1000 "${PLUGIN_CONFIG_DIR}"
+    chown -Rh 1000:1000 "${PLUGIN_CONFIG_DIR}"
 fi

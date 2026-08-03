@@ -75,12 +75,16 @@ is_installed() {
 # the pi-gen SK-plugin stages and signalk-halpi's postinst both create
 # node_modules root-owned (halos-org/halos-pi-gen-template#5). npm then fails
 # EACCES for every package, forever, on an imaged device.
+# -h on every call: node_modules and package.json sit in a directory the container
+# writes, so a symlink planted there would otherwise pick which host path root
+# hands to uid 1000. The recursive chown this replaced was safe by accident --
+# chown -R defaults to -P and does not follow symlinks.
 prepare_paths() {
     mkdir -p "${SIGNALK_DATA}/node_modules" "${NPM_CACHE}"
-    chown "${CONTAINER_UID}:${CONTAINER_GID}" \
+    chown -h "${CONTAINER_UID}:${CONTAINER_GID}" \
         "${SIGNALK_DATA}" "${SIGNALK_DATA}/node_modules" "${NPM_CACHE}"
     [ -f "${NPM_MANIFEST}" ] &&
-        chown "${CONTAINER_UID}:${CONTAINER_GID}" "${NPM_MANIFEST}"
+        chown -h "${CONTAINER_UID}:${CONTAINER_GID}" "${NPM_MANIFEST}"
     return 0
 }
 
