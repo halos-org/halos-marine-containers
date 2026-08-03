@@ -146,7 +146,9 @@ def test_prestart_chown_is_scoped():
     """
     prestart = (APP_DIR / "prestart.sh").read_text()
 
-    recursive_targets = re.findall(r"chown\s+-R\s+\S+\s+(\S+)", prestart)
+    calls = re.findall(r"chown\s+((?:-\S+\s+)*)\S+\s+(\S+)", prestart)
+    assert calls, "no chown call parsed -- the guard would pass vacuously"
+    recursive_targets = [target for flags, target in calls if "R" in flags]
     forbidden = {"CONTAINER_DATA_ROOT", "SIGNALK_DATA"}
     for target in recursive_targets:
         referenced = set(re.findall(r"\$\{?(\w+)", target))
