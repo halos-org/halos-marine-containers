@@ -184,6 +184,12 @@ teardown
 setup "pkg-a"
 export STUB_NPM_FAIL=1
 check "transient install failure retries" "$(run_hook 3)" "124"
+# Distinguishes backoff from a spin: both are killed by the same timeout, so the
+# attempt count is the only evidence that the loop slept at all.
+attempts="$(grep -c '^docker run' "${STUB_LOG}")"
+[ "${attempts}" -le 2 ] &&
+    ok "  and backs off rather than spinning" ||
+    bad "  and backs off rather than spinning" "${attempts} install attempts in 3s"
 teardown
 
 # The -core upgrade: every package is already there, and the image is not.

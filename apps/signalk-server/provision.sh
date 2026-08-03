@@ -111,15 +111,12 @@ is_installed() {
     grep -q "\"${pkg}\"[[:space:]]*:" "${NPM_MANIFEST}"
 }
 
-# Hand over every path npm needs to write. Nothing upstream guarantees this: the
-# app declares no compose `user:`, so postinst creates the data root as root, and
-# the pi-gen SK-plugin stages and signalk-halpi's postinst both create
-# node_modules root-owned (halos-org/halos-pi-gen-template#5). npm then fails
-# EACCES for every package, forever, on an imaged device.
-# -h on every call: node_modules and package.json sit in a directory the container
-# writes, so a symlink planted there would otherwise pick which host path root
-# hands to uid 1000. The recursive chown this replaced was safe by accident --
-# chown -R defaults to -P and does not follow symlinks.
+# npm writes as uid 1000, but nothing upstream guarantees it can: the app declares
+# no compose `user:`, and the pi-gen SK-plugin stages and signalk-halpi's postinst
+# create node_modules root-owned (halos-org/halos-pi-gen-template#5), which fails
+# EACCES for every package forever on an imaged device.
+# -h because these sit in a directory the container writes: following a symlink
+# would let it choose which host path root hands over.
 prepare_paths() {
     mkdir -p "${SIGNALK_DATA}/node_modules" "${NPM_CACHE}"
     chown -h "${CONTAINER_UID}:${CONTAINER_GID}" \
@@ -129,11 +126,9 @@ prepare_paths() {
     return 0
 }
 
-# The app unit is gated on this hook, so the image it needs is this hook's job to
-# have. Without it the pull lands in the app's ExecStart instead, where five
-# failures inside StartLimitIntervalSec leave a unit that does not self-heal --
-# and no deployed device has the -core image cached, so every upgrade takes that
-# path. Same three-way result as install_package.
+# No deployed device has the -core image cached, so every upgrade pulls. Left to
+# the app's ExecStart, five failures inside StartLimitIntervalSec leave a unit
+# that does not self-heal.
 ensure_image() {
     local out status
     docker image inspect "${SIGNALK_IMAGE}" >/dev/null 2>&1 && return 0
@@ -143,7 +138,7 @@ ensure_image() {
     status=$?
     [ "${status}" -eq 0 ] && return 0
 
-    if grep -qE 'manifest unknown|manifest for .* not found|repository does not exist' <<<"${out}"; then
+    if grep -qE 'manifest unknown|manifest for .* not found' <<<"${out}"; then
         log "ERROR: ${SIGNALK_IMAGE} does not exist in the registry"
         return 2
     fi
@@ -192,27 +187,26 @@ docker rm -f "${HALOS_PROVISION_CONTAINER}" >/dev/null 2>&1 || true
 mapfile -t WANTED < <(read_manifest)
 [ ${#WANTED[@]} -gt 0 ] || { log "manifest is empty; nothing to do"; exit 0; }
 
+# The image is needed whatever the manifest says, and once pulled it stays
+# pulled -- so it is settled here rather than re-checked on every pass.
+delay=${RETRY_MIN}
+while true; do
+    ensure_image
+    case $? in
+        0) break ;;
+        2) log "ERROR: giving up. Signal K cannot start without its image."; exit 1 ;;
+    esac
+    log "image unavailable; retrying in ${delay}s"
+    sleep "${delay}"
+    delay=$(( delay * 2 > RETRY_MAX ? RETRY_MAX : delay * 2 ))
+done
+
 delay=${RETRY_MIN}
 attempt=0
+previously_missing=-1
 
 while true; do
     attempt=$((attempt + 1))
-
-    # Ahead of the all-present short-circuit: an upgraded device has every
-    # package already and still needs the image.
-    ensure_image
-    case $? in
-        1)
-            log "image unavailable; retrying in ${delay}s"
-            sleep "${delay}"
-            delay=$(( delay * 2 > RETRY_MAX ? RETRY_MAX : delay * 2 ))
-            continue
-            ;;
-        2)
-            log "ERROR: giving up. Signal K cannot start without its image."
-            exit 1
-            ;;
-    esac
 
     missing=()
     for pkg in "${WANTED[@]}"; do
@@ -227,31 +221,28 @@ while true; do
         exit 0
     fi
 
+    # Progress is the outstanding count shrinking, not npm's exit status: a
+    # package that installs cleanly without satisfying is_installed would
+    # otherwise reset the backoff forever and spin with no sleep at all.
+    if [ "${previously_missing}" -ge 0 ] && [ ${#missing[@]} -ge "${previously_missing}" ]; then
+        log "no package installed last attempt; retrying in ${delay}s"
+        sleep "${delay}"
+        delay=$(( delay * 2 > RETRY_MAX ? RETRY_MAX : delay * 2 ))
+    else
+        delay=${RETRY_MIN}
+    fi
+    previously_missing=${#missing[@]}
+
     prepare_paths
 
-
     log "attempt ${attempt}: installing ${#missing[@]} of ${#WANTED[@]} curated packages"
-    progressed=0
     for pkg in "${missing[@]}"; do
         log "installing ${pkg}"
         install_package "${pkg}"
-        case $? in
-            0) progressed=1 ;;
-            2)
-                log "ERROR: giving up. ${pkg} cannot be installed by waiting, so"
-                log "ERROR: Signal K will not start until the manifest is corrected."
-                exit 1
-                ;;
-        esac
+        if [ $? -eq 2 ]; then
+            log "ERROR: giving up. ${pkg} cannot be installed by waiting, so"
+            log "ERROR: Signal K will not start until the manifest is corrected."
+            exit 1
+        fi
     done
-
-    # Reset the backoff whenever something landed, so a slow link that installs
-    # one package per pass is not punished for making progress.
-    if [ "${progressed}" -eq 1 ]; then
-        delay=${RETRY_MIN}
-    else
-        log "no package installed this attempt; retrying in ${delay}s"
-        sleep "${delay}"
-        delay=$(( delay * 2 > RETRY_MAX ? RETRY_MAX : delay * 2 ))
-    fi
 done
