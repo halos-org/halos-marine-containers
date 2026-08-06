@@ -266,11 +266,39 @@ independently and are not expected to match.
 **The baked set only reaches devices whose data volume does not already contain
 those packages.** Signal K resolves `configPath/node_modules` (the data volume)
 before `appPath/node_modules` (the image) and keeps the first hit, so anything
-the app store installed -- or that the retired provisioning hook installed --
-wins over the baked copy for good. That is deliberate for app-store updates; for
-a device provisioned by the old hook it means the image is inert and the older,
-unverified versions keep running. Clearing such a device is a manual step, not
-something the package does.
+already in the data volume wins over the baked copy for good. Reproduced against
+the shipped server: a stale copy in the data volume is the one `modulesWithKeyword`
+reports, and the image copy is never listed.
+
+This is deliberate for app-store updates. It is not deliberate for what earlier
+packages left behind, and the affected population is larger than the provisioning
+version alone: `2.29.0-1` -- what `trixie-stable` shipped before this -- npm-installed
+`signalk-to-influxdb2` into the data volume from its own prestart hook. So every
+stable device that ever booted online with InfluxDB installed runs a data-volume
+copy of that plugin, hoisted, with its transitive dependencies at the top level
+and equally in the shadowing position. `2.30.0-3` (`trixie-unstable`) additionally
+has the full curated set there.
+
+The consequence to watch is not the version number: this hook writes
+`plugin-config-data/signalk-to-influxdb2.json` against a fixed
+`configuration.influxes[0]` schema, and the plugin that consumes it is the stale
+one. If that schema ever moves, logging fails with the server healthy and every
+image-side assertion green. Clearing a device is a manual step; the package does
+not do it.
+
+**App-store removal of a baked plugin does not work.** `runNpm` runs `npm remove`
+with `cwd` at `configPath` and cleans only under it, so removing a curated plugin
+exits 0, reports success, and the baked copy keeps loading. Accepted: the
+supported control is disabling the plugin (`enabled: false`), not removing it.
+Updating works, and that was the requirement the bake was justified against.
+
+**An app-store update reverts that plugin to a hoisted install.** The image builds
+the curated set with `--install-strategy=nested` precisely so a plugin's
+dependencies are not discovered as plugins themselves. `runNpm` passes no install
+strategy, so an updated plugin and its dependency closure land hoisted in the data
+volume -- where they both shadow the verified copies and can be picked up by
+keyword discovery. The nesting guarantee is a property of the image, not of a
+device that has updated anything.
 
 ### When Signal K will not start after an upgrade
 

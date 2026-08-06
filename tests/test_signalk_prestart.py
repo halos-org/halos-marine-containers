@@ -7,9 +7,14 @@ signing key and the InfluxDB token, and it hands the data volume over to the
 container's uid.
 """
 
+import json
 import re
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
+
+import pytest
 
 APP_DIR = Path(__file__).parent.parent / "apps" / "signalk-server"
 
@@ -44,6 +49,49 @@ def test_image_is_the_baked_one_at_an_exact_tag():
     # <upstream version>-<build revision>, the shape signalk-server-docker
     # publishes. Rejects latest, a bare version, and any moving alias.
     assert re.fullmatch(r"\d+\.\d+\.\d+-\d+", tag), f"not an exact tag: {tag!r}"
+
+
+def test_image_exists_in_the_registry():
+    """A well-formed tag that was never published passes every other check here,
+    ships a .deb, and lands every device in a terminal `failed` unit.
+
+    This one line is the whole plugin set, and the shape check above cannot see
+    the artifact. An off-by-one revision, or a repin made ahead of the image
+    repo's merge, is a realistic mistake -- that repo's CI refuses to overwrite a
+    published tag, so "repin first, publish later" is an ordering people hit.
+    Replaces the registry half of the deleted manifest tests, and skips on a
+    network failure the same way they did.
+    """
+    compose = (APP_DIR / "docker-compose.yml").read_text()
+    ref = re.search(r"^\s*image:\s*(\S+)", compose, re.MULTILINE).group(1)
+    repo, _, tag = ref.partition(":")
+    path = repo.removeprefix("ghcr.io/")
+
+    try:
+        with urllib.request.urlopen(
+            f"https://ghcr.io/token?scope=repository:{path}:pull", timeout=30
+        ) as response:
+            token = json.load(response)["token"]
+        request = urllib.request.Request(
+            f"https://ghcr.io/v2/{path}/manifests/{tag}", method="HEAD"
+        )
+        request.add_header("Authorization", f"Bearer {token}")
+        # Anonymous, deliberately: the devices pull without credentials, so a
+        # package that went private has to fail here rather than pass on a
+        # maintainer's token.
+        request.add_header(
+            "Accept",
+            "application/vnd.oci.image.manifest.v1+json,"
+            "application/vnd.docker.distribution.manifest.v2+json",
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            assert response.status == 200, f"{ref}: HTTP {response.status}"
+    except urllib.error.HTTPError as exc:
+        raise AssertionError(
+            f"{ref} is not anonymously pullable from the registry (HTTP {exc.code})"
+        ) from exc
+    except urllib.error.URLError as exc:
+        pytest.skip(f"registry unreachable: {exc.reason}")
 
 
 def test_prestart_is_executable():
