@@ -85,13 +85,15 @@ EXTERNAL_PORT="$(grep '^signalk-server=' /etc/halos/port-registry 2>/dev/null | 
 } >> "$RUNTIME_ENV"
 
 # --- InfluxDB plugin configuration ---
-# signalk-to-influxdb2 is installed by provision.sh, which the app unit requires,
-# so it is present unless the operator removed it through the app store. The
-# token lives in the InfluxDB container's env and is rewritten here on every
-# start, because rotating it there must reach this config.
+# signalk-to-influxdb2 is baked into the image, so the data volume cannot attest
+# to it: a presence check under ${SIGNALK_DATA}/node_modules is false on every
+# device that has not updated the plugin through the app store, and writing the
+# token config is then skipped for the whole life of the device. The token lives
+# in the InfluxDB container's env and is rewritten here on every start, because
+# rotating it there must reach this config.
 INFLUXDB_ENV="${INFLUXDB_ENV:-/etc/container-apps/marine-influxdb-container/env}"
 
-if [ -d "${SIGNALK_DATA}/node_modules/signalk-to-influxdb2" ] && [ -f "${INFLUXDB_ENV}" ]; then
+if [ -f "${INFLUXDB_ENV}" ]; then
     INFLUXDB_ADMIN_TOKEN=$(grep '^INFLUXDB_ADMIN_TOKEN=' "${INFLUXDB_ENV}" | cut -d= -f2-)
 
     if [ -n "${INFLUXDB_ADMIN_TOKEN}" ]; then
@@ -142,13 +144,25 @@ fi
 
 # The container runs as node:node while this script runs as root, so what root
 # creates here has to be handed over. Named paths only: a recursive chown of the
-# data root walks the curated plugin tree and the npm cache on every boot, and
-# node_modules and npm-cache are written by the container as uid 1000 anyway.
+# data root walks the whole plugin tree on every boot.
 # -h throughout: these live in a directory the container can write, so following
 # a symlink would let it choose which host path root hands over.
 chown -h 1000:1000 "${SIGNALK_DATA}"
 if [ -f "${SIGNALK_DATA}/settings.json" ]; then
     chown -h 1000:1000 "${SIGNALK_DATA}/settings.json"
+fi
+
+# The app store installs plugin updates into this tree as uid 1000, and that is
+# the only route by which a baked plugin stays updatable. Both paths are created
+# root-owned by things that run before Signal K ever starts -- signalk-halpi's
+# postinst registers itself as a file: dependency, creating node_modules and
+# package.json as root, and the pi-gen plugin stages do the same on an imaged
+# device. Left root-owned, every app-store install fails EACCES forever.
+# Non-recursive on purpose: what is already inside belongs to the container.
+mkdir -p "${SIGNALK_DATA}/node_modules"
+chown -h 1000:1000 "${SIGNALK_DATA}/node_modules"
+if [ -f "${SIGNALK_DATA}/package.json" ]; then
+    chown -h 1000:1000 "${SIGNALK_DATA}/package.json"
 fi
 if [ -d "${PLUGIN_CONFIG_DIR}" ]; then
     chown -Rh 1000:1000 "${PLUGIN_CONFIG_DIR}"
