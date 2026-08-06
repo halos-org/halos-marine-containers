@@ -223,24 +223,41 @@ volumes under a temp directory, and never touches `/etc` or a device. Run it
 after changing `apps/influxdb/prestart.sh`; it is not part of CI because it
 pulls and boots the InfluxDB image.
 
-### Signal K Provisioning and Prestart Hooks
+### Signal K Prestart Hook
 
-`apps/signalk-server/provision.sh` and `prestart.sh` have bash harnesses that
-stub everything external, so they need no Docker, no network and no root:
+`apps/signalk-server/prestart.sh` has a bash harness that stubs chown and bcrypt,
+so it needs no Docker, no network and no root. Unlike the InfluxDB harness it
+runs in CI, via `tests/test_signalk_prestart.py`:
 
 ```bash
-./tools/test-provision.sh    # stubbed docker + dpkg-query
-./tools/test-prestart.sh     # stubbed chown + bcrypt
+./tools/test-prestart.sh
 ```
 
-Unlike the InfluxDB harness these run in CI -- `tests/test_signalk_plugins.py`
-invokes both. They need bash 4+ and GNU coreutils (`timeout`, `mapfile`), so a
-stock macOS shell cannot run them; use the repo's own CI or a Linux container.
+Two of the hook's jobs look like leftovers and are not:
 
-`apps/signalk-server/assets/plugins.list` is load-bearing: an entry the npm
-registry will never serve makes provisioning exit non-zero, and Signal K is
-ordered behind it after an install or upgrade. Edit it with that in mind --
-`test_entries_exist_in_the_registry` checks every entry against the registry.
+- **The InfluxDB config is written without checking that the plugin is
+  installed.** The plugin is baked into the image, so the data volume holds no
+  evidence of it. An earlier presence check under
+  `${SIGNALK_DATA}/node_modules/signalk-to-influxdb2` was false on every device
+  that had not updated the plugin through the app store -- so the token was never
+  written, the server started, and only the graphs stayed empty.
+- **`node_modules` and `package.json` are handed to uid 1000 on every start.**
+  `signalk-halpi`'s postinst creates both as root when it registers itself as a
+  `file:` dependency, and the pi-gen plugin stages do the same on an imaged
+  device. Left root-owned, every app-store plugin install fails EACCES forever --
+  and app-store updates are the only thing keeping a baked plugin updatable.
+
+### Signal K Plugin Set
+
+The curated plugins are baked into the image, not installed at runtime. They live
+in `halos-org/signalk-server-docker`, which owns `plugins.list` and verifies that
+every entry actually loads in a running server. Changing the set means a PR
+there, then repinning the tag in `apps/signalk-server/docker-compose.yml` and
+bumping `apps/signalk-server/metadata.yaml`.
+
+The tag is always exact. Nothing in the curated set is version-pinned (matching
+upstream), so a rebuild resolves a different plugin set -- a floating tag would
+swap the image underneath a verification that had already passed.
 
 ### Authentication Negative Tests
 
