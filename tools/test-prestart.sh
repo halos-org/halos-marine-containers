@@ -5,8 +5,11 @@
 # filesystem after it runs, not of the script's text, so this runs it against a
 # sandbox: no root, no container, no InfluxDB.
 #
-# Ownership is NOT covered: the run is unprivileged, so chown is stubbed out and
-# nothing here can observe a uid. Assert modes, not owners.
+# Modes are asserted against the real filesystem. Ownership is asserted against
+# the chown stub's call log -- the run is unprivileged, so no uid here can ever
+# be the container's. That log records what the hook asked for, not what the
+# kernel did, which is the ceiling for this harness; the handover itself is only
+# confirmable by installing a plugin through the app store on a real device.
 #
 # Usage: tools/test-prestart.sh
 set -u
@@ -37,9 +40,22 @@ setup() {
     STUB_LOG="${SANDBOX}/chown.log"; : > "${STUB_LOG}"
     export STUB_LOG
 
+    # Fails on a path that is neither a file nor a symlink, the way the real
+    # chown does. A stub that always succeeds cannot see a chown on a path the
+    # hook forgot to guard -- and under set -e that is an ExecStartPre abort,
+    # not a warning.
     cat > "${SANDBOX}/bin/chown" <<'STUB'
 #!/bin/bash
 echo "chown $*" >> "${STUB_LOG}"
+for arg in "$@"; do
+    case "$arg" in
+        -*|*:*) continue ;;
+    esac
+    [ -e "$arg" ] || [ -L "$arg" ] || {
+        echo "chown: cannot access '$arg': No such file or directory" >&2
+        exit 1
+    }
+done
 STUB
     # bcrypt is not installed on a dev machine; every other python3 call is real.
     cat > "${SANDBOX}/bin/python3" <<'STUB'
@@ -56,13 +72,19 @@ STUB
 
 teardown() { rm -rf "${SANDBOX}"; }
 
+# Sourced under set -e, matching how the generated framework prestart runs this
+# (container-packaging-tools prestart.py: `set -e`, then the hook as a statement
+# so a failure inside it propagates). Running it as a plain `bash "${HOOK}"`
+# would report only the last command's status, so any command that aborts the
+# real ExecStartPre -- and takes the navigation server down with it -- would look
+# like a clean exit 0 here.
 run_hook() {  # echoes exit status
     PATH="${SANDBOX}/bin:${PATH}" \
         CONTAINER_DATA_ROOT="${DATA}" \
         RUNTIME_ENV="${SANDBOX}/runtime.env" \
         HALOS_DOMAIN="test.local" \
         INFLUXDB_ENV="${SANDBOX}/influxdb.env" \
-        bash "${HOOK}" > "${SANDBOX}/out" 2>&1
+        bash -c 'set -e; . "$1"' _ "${HOOK}" > "${SANDBOX}/out" 2>&1
     echo $?
 }
 
@@ -70,12 +92,32 @@ influx_available() {  # $1 = token to publish
     printf 'INFLUXDB_ADMIN_TOKEN=%s\n' "$1" > "${SANDBOX}/influxdb.env"
 }
 
+# Matches the whole call, not just the path. Asserting only that the path was
+# named passes `chown -h 0:0` and passes a chown that dropped -h -- both leave the
+# device exactly as broken as the missing chown this guard exists to catch, so
+# the owner and the -h have to be in the same log line as the path.
+#
+# -h matters here specifically: signalk-halpi's postinst and the pi-gen stage
+# both create symlinks inside node_modules, and the directory is container-
+# writable, so a dereferencing chown would let the container pick which host path
+# root hands over.
+#
 # Exact field match, not a substring: "${SK}/node_modules" is a prefix of every
 # path below it, so a grep would report the tree as handed over when only a child
 # was -- or the reverse.
 chowned() {  # $1 = path the hook must have handed to the container uid
-    awk -v p="$1" 'BEGIN{f=1} {for (i=1; i<=NF; i++) if ($i == p) f=0} END{exit f}' \
-        "${STUB_LOG}"
+    awk -v p="$1" '
+        BEGIN { f = 1 }
+        {
+            owner = 0; noderef = 0; path = 0
+            for (i = 1; i <= NF; i++) {
+                if ($i == "1000:1000") owner = 1
+                else if ($i ~ /^-[A-Za-z]*h/) noderef = 1
+                else if ($i == p) path = 1
+            }
+            if (owner && noderef && path) f = 0
+        }
+        END { exit f }' "${STUB_LOG}"
 }
 
 echo "prestart.sh behaviour"
@@ -108,11 +150,14 @@ check "no influx config without the InfluxDB env file" "$(run_hook)" "0"
     bad "  config is absent" "$(cat "${SK}/plugin-config-data/signalk-to-influxdb2.json")"
 teardown
 
-# provision.sh used to own this. signalk-halpi's postinst creates both paths as
-# root before Signal K has ever run, and left that way every app-store plugin
-# install fails EACCES -- permanently, and only visibly in the admin UI.
+# signalk-halpi's postinst creates both paths as root before Signal K has ever
+# run, and left that way every app-store plugin install fails EACCES --
+# permanently, and only visibly in the admin UI. Modelled with the symlink it
+# really plants inside node_modules, which is what makes -h and the
+# non-recursive chown load-bearing rather than stylistic.
 setup
-mkdir -p "${SK}/node_modules"
+mkdir -p "${SK}/node_modules" "${SK}/system-plugins/signalk-halpi"
+ln -s ../system-plugins/signalk-halpi "${SK}/node_modules/signalk-halpi"
 printf '{"dependencies":{"signalk-halpi":"file:system-plugins/signalk-halpi"}}\n' \
     > "${SK}/package.json"
 check "a root-created node_modules is handed over" "$(run_hook)" "0"
@@ -131,6 +176,60 @@ check "a missing node_modules is created" "$(run_hook)" "0"
     ok "  it exists" || bad "  it exists" "node_modules was not created"
 chowned "${SK}/node_modules" &&
     ok "  and is handed over" || bad "  and is handed over" "$(cat "${STUB_LOG}")"
+teardown
+
+# uid 1000 owns ${SIGNALK_DATA} -- this hook hands it over -- so the container can
+# replace node_modules with a symlink. Dangling, mkdir -p does not create through
+# it, it exits 1; sourced under the framework's set -e that fails ExecStartPre on
+# every boot with nothing to clear it, and the navigation server never starts.
+setup
+ln -s /nonexistent/relocated "${SK}/node_modules"
+check "a dangling node_modules symlink does not wedge the unit" "$(run_hook)" "0"
+[ -d "${SK}/node_modules" ] && [ ! -L "${SK}/node_modules" ] &&
+    ok "  it is replaced by a real directory" ||
+    bad "  it is replaced by a real directory" "still $(ls -ld "${SK}/node_modules")"
+teardown
+
+# A symlink to a directory that exists is someone relocating the plugin tree to
+# another disk, not an attack. mkdir -p accepts it, and chown -h must hand over
+# the link rather than whatever it points at -- following it would let the
+# container choose which host path root gives away.
+setup
+mkdir -p "${SANDBOX}/elsewhere"
+ln -s "${SANDBOX}/elsewhere" "${SK}/node_modules"
+check "a relocated node_modules is left in place" "$(run_hook)" "0"
+[ -L "${SK}/node_modules" ] &&
+    ok "  the symlink survives" || bad "  the symlink survives" "symlink was replaced"
+teardown
+
+# A full data partition is the realistic trigger: mkdir needs a block, the chmods
+# on existing files above do not. Signal K must still come up -- plugin updates
+# broken beats a navigation server that never starts -- so the failure is a
+# warning, and nothing after it may abort under the framework's set -e.
+setup
+cat > "${SANDBOX}/bin/mkdir" <<'STUB'
+#!/bin/bash
+for arg in "$@"; do
+    case "$arg" in */node_modules) echo "mkdir: no space left on device" >&2; exit 1 ;; esac
+done
+exec /bin/mkdir "$@"
+STUB
+chmod 755 "${SANDBOX}/bin/mkdir"
+check "an unwritable node_modules warns instead of blocking start" "$(run_hook)" "0"
+grep -q "WARNING: could not create" "${SANDBOX}/out" &&
+    ok "  and says so" || bad "  and says so" "$(cat "${SANDBOX}/out")"
+teardown
+
+# apps/influxdb/prestart.sh has paths that leave the env file without a usable
+# token. With the plugin-presence gate gone, the emptiness check is the only
+# thing standing between that and a config naming the database with no
+# credential.
+setup
+printf 'INFLUXDB_ADMIN_TOKEN=\n' > "${SANDBOX}/influxdb.env"
+check "no influx config when the env file carries no token" "$(run_hook)" "0"
+[ ! -e "${SK}/plugin-config-data/signalk-to-influxdb2.json" ] &&
+    ok "  config is absent" ||
+    bad "  config is absent" "$(cat "${SK}/plugin-config-data/signalk-to-influxdb2.json")"
 teardown
 
 # What an upgraded device looks like: the secret files the old hook wrote 0644.

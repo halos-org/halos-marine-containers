@@ -77,7 +77,7 @@ Individual apps in `apps/` have their own versions in `metadata.yaml`. These are
 **CI Enforcement**:
 
 - **App-level (per PR)**: PRs that change files in `apps/<app>/` must bump the `version` field in `apps/<app>/metadata.yaml`, or CI will fail.
-- **Repo-level (per release cycle)**: `VERSION` bumps are per release cycle, not per PR — CI fails only on the PR that opens a new cycle. This repo is a clean example: a single `VERSION` of `0.3.2` has shipped twelve `+N` prereleases. See the workspace `AGENTS.md` version-bump policy for the decision procedure — including the highest-level-wins rule: if a change at a higher semver level than the cycle-opening bump lands mid-cycle, re-bump `VERSION` up to that level once.
+- **Repo-level (per release cycle)**: `VERSION` bumps are per release cycle, not per PR — CI fails only on the PR that opens a new cycle. This repo is a clean example: `0.3.2` shipped 24 `+N` prereleases before the current cycle opened at `0.4.0`. See the workspace `AGENTS.md` version-bump policy for the decision procedure — including the highest-level-wins rule: if a change at a higher semver level than the cycle-opening bump lands mid-cycle, re-bump `VERSION` up to that level once.
 
 ## What This Repository Contains
 
@@ -104,8 +104,9 @@ halos-marine-containers/
 │   ├── signalk-server/
 │   │   ├── docker-compose.yml
 │   │   ├── config.yml
-│   │   ├── metadata.json
-│   │   └── icon.png
+│   │   ├── metadata.yaml
+│   │   ├── prestart.sh
+│   │   └── icon.svg
 │   ├── opencpn/
 │   └── ...
 ├── tools/
@@ -123,7 +124,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for complete instructions.
 
 **Quick overview**:
 1. Create `apps/<app-name>/` directory
-2. Add `docker-compose.yml`, `config.yml`, `metadata.json`, `icon.png`
+2. Add `docker-compose.yml`, `config.yml`, `metadata.yaml`, `icon.svg`
 3. Test locally with `generate-container-packages`
 4. Create PR - CI will build and validate
 
@@ -255,9 +256,37 @@ every entry actually loads in a running server. Changing the set means a PR
 there, then repinning the tag in `apps/signalk-server/docker-compose.yml` and
 bumping `apps/signalk-server/metadata.yaml`.
 
-The tag is always exact. Nothing in the curated set is version-pinned (matching
-upstream), so a rebuild resolves a different plugin set -- a floating tag would
-swap the image underneath a verification that had already passed.
+The tag is always exact, and `tests/test_signalk_prestart.py` enforces it.
+Nothing in the curated set is version-pinned (matching upstream), so a rebuild
+resolves a different plugin set -- a floating tag would swap the image underneath
+a verification that had already passed. The tag's `-N` is the image build
+revision; `metadata.yaml`'s `-N` is the package revision. They count
+independently and are not expected to match.
+
+**The baked set only reaches devices whose data volume does not already contain
+those packages.** Signal K resolves `configPath/node_modules` (the data volume)
+before `appPath/node_modules` (the image) and keeps the first hit, so anything
+the app store installed -- or that the retired provisioning hook installed --
+wins over the baked copy for good. That is deliberate for app-store updates; for
+a device provisioned by the old hook it means the image is inert and the older,
+unverified versions keep running. Clearing such a device is a manual step, not
+something the package does.
+
+### When Signal K will not start after an upgrade
+
+The pinned tag is uncached on every device, so an upgrade pulls. That pull
+happens in the app unit's `ExecStart`, under `Restart=always` / `RestartSec=10`
+/ `StartLimitBurst=5`, so a device that is offline at upgrade time fails five
+starts in about 40 seconds and lands in `failed` -- which does **not** recover on
+its own when the uplink returns, and which `apt` reports as a successful upgrade.
+
+```bash
+systemctl reset-failed marine-signalk-server-container.service
+systemctl start marine-signalk-server-container.service
+```
+
+This is fleet-wide, not specific to Signal K: every marine app pins an exact tag
+and fetches it the same way. Tracked in halos-org/container-packaging-tools#241.
 
 ### Authentication Negative Tests
 

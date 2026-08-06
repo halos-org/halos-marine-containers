@@ -13,6 +13,38 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).parent.parent / "apps" / "signalk-server"
 
+# The hook's text, minus comments. The guards below are substring checks, and
+# this repo's house style puts long explanations right above the code they
+# justify -- matching those would make the guards fire on prose and quietly
+# discourage documenting the very decisions they exist to protect.
+def hook_code() -> str:
+    lines = (APP_DIR / "prestart.sh").read_text().splitlines()
+    return "\n".join(line for line in lines if not line.lstrip().startswith("#"))
+
+
+def test_image_is_the_baked_one_at_an_exact_tag():
+    """The plugins live in the image, so this pin is the only thing tying the
+    device to a verified build.
+
+    Nothing else in this repo can see the plugin set. Point this line back at
+    upstream and every test here still passes while every curated plugin
+    disappears and prestart.sh writes an InfluxDB config for a plugin that is
+    not installed. A floating tag is the same failure with an extra step: the
+    curated set is resolved unpinned at build time, so a rebuild behind a moving
+    tag swaps the image underneath a verification that already passed.
+    """
+    compose = (APP_DIR / "docker-compose.yml").read_text()
+    refs = re.findall(r"^\s*image:\s*(\S+)", compose, re.MULTILINE)
+    assert len(refs) == 1, f"expected exactly one image, got {refs}"
+
+    repo, _, tag = refs[0].partition(":")
+    assert repo == "ghcr.io/halos-org/signalk-server-docker", (
+        f"not the baked image: {refs[0]}"
+    )
+    # <upstream version>-<build revision>, the shape signalk-server-docker
+    # publishes. Rejects latest, a bare version, and any moving alias.
+    assert re.fullmatch(r"\d+\.\d+\.\d+-\d+", tag), f"not an exact tag: {tag!r}"
+
 
 def test_prestart_is_executable():
     assert APP_DIR.joinpath("prestart.sh").stat().st_mode & 0o111
@@ -42,7 +74,7 @@ def test_prestart_does_not_install_plugins():
     provisioning one-shot, which put the navigation server behind the npm
     registry on every package upgrade.
     """
-    prestart = (APP_DIR / "prestart.sh").read_text()
+    prestart = hook_code()
 
     assert "plugins.list" not in prestart
     assert "--entrypoint npm" not in prestart
@@ -57,7 +89,7 @@ def test_prestart_chown_is_scoped():
     no flags sit between `-R` and the owner, and SIGNALK_DATA contains
     node_modules just as surely as the data root does.
     """
-    prestart = (APP_DIR / "prestart.sh").read_text()
+    prestart = hook_code()
 
     calls = re.findall(r"chown\s+((?:-\S+\s+)*)\S+\s+(\S+)", prestart)
     assert calls, "no chown call parsed -- the guard would pass vacuously"
@@ -74,10 +106,10 @@ def test_prestart_does_not_gate_influxdb_on_the_data_volume():
     """The plugin lives in the image, so the data volume cannot attest to it.
 
     A presence check under the data volume's node_modules is false on every
-    device that has not updated the plugin through the app store -- which is
-    every device on a fresh install -- and the token config is then never
-    written. Silent: the server starts, and only the graphs are empty.
+    freshly imaged device -- nothing puts the plugin there any more -- and the
+    token config is then never written for the whole life of that device.
+    Silent: the server starts, and only the graphs are empty.
     """
-    prestart = (APP_DIR / "prestart.sh").read_text()
+    prestart = hook_code()
 
     assert "node_modules/signalk-to-influxdb2" not in prestart
