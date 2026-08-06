@@ -1,7 +1,11 @@
 
 services:
   signalk-server:
-    image: signalk/signalk-server:v2.30.0-core
+    # Upstream's -core with the curated plugin set baked in at build time; see
+    # halos-org/signalk-server-docker. Exact tag, never a floating one: the tag
+    # names an artifact that passed that repo's verification, and nothing in the
+    # curated set is version-pinned, so a re-resolved rebuild is a different image.
+    image: ghcr.io/halos-org/signalk-server-docker:2.30.0-1
     container_name: signalk-server
     init: true
     restart: unless-stopped

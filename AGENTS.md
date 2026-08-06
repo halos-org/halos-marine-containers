@@ -77,7 +77,7 @@ Individual apps in `apps/` have their own versions in `metadata.yaml`. These are
 **CI Enforcement**:
 
 - **App-level (per PR)**: PRs that change files in `apps/<app>/` must bump the `version` field in `apps/<app>/metadata.yaml`, or CI will fail.
-- **Repo-level (per release cycle)**: `VERSION` bumps are per release cycle, not per PR — CI fails only on the PR that opens a new cycle. This repo is a clean example: a single `VERSION` of `0.3.2` has shipped twelve `+N` prereleases. See the workspace `AGENTS.md` version-bump policy for the decision procedure — including the highest-level-wins rule: if a change at a higher semver level than the cycle-opening bump lands mid-cycle, re-bump `VERSION` up to that level once.
+- **Repo-level (per release cycle)**: `VERSION` bumps are per release cycle, not per PR — CI fails only on the PR that opens a new cycle. This repo is a clean example: `0.3.2` shipped 24 `+N` prereleases before the current cycle opened at `0.4.0`. See the workspace `AGENTS.md` version-bump policy for the decision procedure — including the highest-level-wins rule: if a change at a higher semver level than the cycle-opening bump lands mid-cycle, re-bump `VERSION` up to that level once.
 
 ## What This Repository Contains
 
@@ -104,8 +104,9 @@ halos-marine-containers/
 │   ├── signalk-server/
 │   │   ├── docker-compose.yml
 │   │   ├── config.yml
-│   │   ├── metadata.json
-│   │   └── icon.png
+│   │   ├── metadata.yaml
+│   │   ├── prestart.sh
+│   │   └── icon.svg
 │   ├── opencpn/
 │   └── ...
 ├── tools/
@@ -123,7 +124,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for complete instructions.
 
 **Quick overview**:
 1. Create `apps/<app-name>/` directory
-2. Add `docker-compose.yml`, `config.yml`, `metadata.json`, `icon.png`
+2. Add `docker-compose.yml`, `config.yml`, `metadata.yaml`, `icon.svg`
 3. Test locally with `generate-container-packages`
 4. Create PR - CI will build and validate
 
@@ -223,24 +224,97 @@ volumes under a temp directory, and never touches `/etc` or a device. Run it
 after changing `apps/influxdb/prestart.sh`; it is not part of CI because it
 pulls and boots the InfluxDB image.
 
-### Signal K Provisioning and Prestart Hooks
+### Signal K Prestart Hook
 
-`apps/signalk-server/provision.sh` and `prestart.sh` have bash harnesses that
-stub everything external, so they need no Docker, no network and no root:
+`apps/signalk-server/prestart.sh` has a bash harness that stubs chown and bcrypt,
+so it needs no Docker, no network and no root. Unlike the InfluxDB harness it
+runs in CI, via `tests/test_signalk_prestart.py`:
 
 ```bash
-./tools/test-provision.sh    # stubbed docker + dpkg-query
-./tools/test-prestart.sh     # stubbed chown + bcrypt
+./tools/test-prestart.sh
 ```
 
-Unlike the InfluxDB harness these run in CI -- `tests/test_signalk_plugins.py`
-invokes both. They need bash 4+ and GNU coreutils (`timeout`, `mapfile`), so a
-stock macOS shell cannot run them; use the repo's own CI or a Linux container.
+Two of the hook's jobs look like leftovers and are not:
 
-`apps/signalk-server/assets/plugins.list` is load-bearing: an entry the npm
-registry will never serve makes provisioning exit non-zero, and Signal K is
-ordered behind it after an install or upgrade. Edit it with that in mind --
-`test_entries_exist_in_the_registry` checks every entry against the registry.
+- **The InfluxDB config is written without checking that the plugin is
+  installed.** The plugin is baked into the image, so the data volume holds no
+  evidence of it. An earlier presence check under
+  `${SIGNALK_DATA}/node_modules/signalk-to-influxdb2` was false on every device
+  that had not updated the plugin through the app store -- so the token was never
+  written, the server started, and only the graphs stayed empty.
+- **`node_modules` and `package.json` are handed to uid 1000 on every start.**
+  `signalk-halpi`'s postinst creates both as root when it registers itself as a
+  `file:` dependency, and the pi-gen plugin stages do the same on an imaged
+  device. Left root-owned, every app-store plugin install fails EACCES forever --
+  and app-store updates are the only thing keeping a baked plugin updatable.
+
+### Signal K Plugin Set
+
+The curated plugins are baked into the image, not installed at runtime. They live
+in `halos-org/signalk-server-docker`, which owns `plugins.list` and verifies that
+every entry actually loads in a running server. Changing the set means a PR
+there, then repinning the tag in `apps/signalk-server/docker-compose.yml` and
+bumping `apps/signalk-server/metadata.yaml`.
+
+The tag is always exact, and `tests/test_signalk_prestart.py` enforces it.
+Nothing in the curated set is version-pinned (matching upstream), so a rebuild
+resolves a different plugin set -- a floating tag would swap the image underneath
+a verification that had already passed. The tag's `-N` is the image build
+revision; `metadata.yaml`'s `-N` is the package revision. They count
+independently and are not expected to match.
+
+**The baked set only reaches devices whose data volume does not already contain
+those packages.** Signal K resolves `configPath/node_modules` (the data volume)
+before `appPath/node_modules` (the image) and keeps the first hit, so anything
+already in the data volume wins over the baked copy for good. Reproduced against
+the shipped server: a stale copy in the data volume is the one `modulesWithKeyword`
+reports, and the image copy is never listed.
+
+This is deliberate for app-store updates. It is not deliberate for what earlier
+packages left behind, and the affected population is larger than the provisioning
+version alone: `2.29.0-1` -- what `trixie-stable` shipped before this -- npm-installed
+`signalk-to-influxdb2` into the data volume from its own prestart hook. So every
+stable device that ever booted online with InfluxDB installed runs a data-volume
+copy of that plugin, hoisted, with its transitive dependencies at the top level
+and equally in the shadowing position. `2.30.0-3` (`trixie-unstable`) additionally
+has the full curated set there.
+
+The consequence to watch is not the version number: this hook writes
+`plugin-config-data/signalk-to-influxdb2.json` against a fixed
+`configuration.influxes[0]` schema, and the plugin that consumes it is the stale
+one. If that schema ever moves, logging fails with the server healthy and every
+image-side assertion green. Clearing a device is a manual step; the package does
+not do it.
+
+**App-store removal of a baked plugin does not work.** `runNpm` runs `npm remove`
+with `cwd` at `configPath` and cleans only under it, so removing a curated plugin
+exits 0, reports success, and the baked copy keeps loading. Accepted: the
+supported control is disabling the plugin (`enabled: false`), not removing it.
+Updating works, and that was the requirement the bake was justified against.
+
+**An app-store update reverts that plugin to a hoisted install.** The image builds
+the curated set with `--install-strategy=nested` precisely so a plugin's
+dependencies are not discovered as plugins themselves. `runNpm` passes no install
+strategy, so an updated plugin and its dependency closure land hoisted in the data
+volume -- where they both shadow the verified copies and can be picked up by
+keyword discovery. The nesting guarantee is a property of the image, not of a
+device that has updated anything.
+
+### When Signal K will not start after an upgrade
+
+The pinned tag is uncached on every device, so an upgrade pulls. That pull
+happens in the app unit's `ExecStart`, under `Restart=always` / `RestartSec=10`
+/ `StartLimitBurst=5`, so a device that is offline at upgrade time fails five
+starts in about 40 seconds and lands in `failed` -- which does **not** recover on
+its own when the uplink returns, and which `apt` reports as a successful upgrade.
+
+```bash
+systemctl reset-failed marine-signalk-server-container.service
+systemctl start marine-signalk-server-container.service
+```
+
+This is fleet-wide, not specific to Signal K: every marine app pins an exact tag
+and fetches it the same way. Tracked in halos-org/container-packaging-tools#241.
 
 ### Authentication Negative Tests
 

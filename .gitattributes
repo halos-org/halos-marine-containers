@@ -1,2 +1,0 @@
-# The provisioning hook parses this line-by-line; CRLF would make every entry "name\r".
-apps/signalk-server/assets/plugins.list text eol=lf
