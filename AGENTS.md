@@ -242,14 +242,33 @@ Three of the hook's jobs look like leftovers and are not:
   `${SIGNALK_DATA}/node_modules/signalk-to-influxdb2` was false on every device
   that had not updated the plugin through the app store -- so the token was never
   written, the server started, and only the graphs stayed empty.
-- **Symlinks are cleared from the paths root writes, before it writes them.**
-  `security.json`, `plugin-config-data/` and the InfluxDB token config all live
-  in a directory this hook hands to uid 1000, so the container can unlink any of
-  them and leave a symlink behind. `chmod`, `touch` and `cat >` all dereference,
-  which turns a container foothold into a host-root write. Root never creates a
-  symlink at those paths, so removing one only ever undoes tampering — unlike
-  `node_modules`, where a symlink may be a deliberate relocation and only a
-  dangling one is cleared.
+- **Root never writes through a symlink into the data volume.** This hook hands
+  `${SIGNALK_DATA}` to uid 1000, so the container — and any host process running
+  as `pi`, which is the same uid — can unlink a file root is about to write and
+  leave a symlink behind. Two mechanisms, and the second is the one that
+  generalises: a guard clears symlinks from the three named paths up front, and
+  every file *creation* uses `O_CREAT|O_EXCL` (`umask 077` + `set -o noclobber`
+  for the heredocs, `os.open` for the token rewrite), which refuses to follow a
+  link in one syscall. The guard alone is check-then-use and only covers paths
+  someone remembered to name — a temp file one line away from a guarded path was
+  a live arbitrary-root-write until review found it. Prefer `O_EXCL` to adding
+  another path to the guard.
+
+  Scope: this is a property of *this hook*, not of the directory. Anything else
+  that writes there as root needs the same care — `signalk-halpi`'s postinst
+  writes `plugin-config-data/signalk-halpi.json` and `package.json` into it and
+  does not have it (hatlabs/signalk-halpi#26).
+
+  `node_modules` is deliberately different: nothing here writes into it, so a
+  surviving symlink yields no root write, and one may be an operator relocating
+  the tree to another disk. Only a dangling one is cleared.
+
+  Paths that are safe today for a *different* reason, and would silently become
+  the same bug if that changed: `${CONTAINER_DATA_ROOT}/admin-password`,
+  `oidc-secret` and `$RUNTIME_ENV` are safe only because their parent is
+  root-owned and outside the bind mount; `settings.json` and `package.json` only
+  because they are `chown -h`'d and never written. Mount `${CONTAINER_DATA_ROOT}`
+  into a container, or add a `cat >` to `settings.json`, and they are exposed.
 
 - **`node_modules` and `package.json` are handed to uid 1000 on every start.**
   `signalk-halpi`'s postinst creates both as root when it registers itself as a

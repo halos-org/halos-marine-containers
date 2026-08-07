@@ -291,14 +291,18 @@ teardown
 # container-writable. The token is the InfluxDB admin credential.
 setup
 CANARY="${SANDBOX}/outside-the-data-root"
-printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
+# Valid JSON on purpose. With plain text the hook's json.load raises before it
+# writes anything, so "not written through" would pass against a vulnerable hook
+# for a reason that has nothing to do with the guard.
+printf '{"configuration":{"influxes":[{"token":"none"}]}}\n' > "${CANARY}"
+chmod 644 "${CANARY}"
 mkdir -p "${SK}/plugin-config-data"
 ln -s "${CANARY}" "${SK}/plugin-config-data/signalk-to-influxdb2.json"
 influx_available tok-symlink
 check "a symlinked influx config does not wedge the unit" "$(run_hook)" "0"
-[ "$(cat "${CANARY}")" = "original" ] &&
-    ok "  no token written through the link" ||
-    bad "  no token written through the link" "$(cat "${CANARY}")"
+grep -q tok-symlink "${CANARY}" &&
+    bad "  no token written through the link" "token landed in the link target" ||
+    ok "  no token written through the link"
 check "  the link target keeps its mode" "$(mode "${CANARY}")" "644"
 check "  a real config replaces the link, 0600" \
     "$(mode "${SK}/plugin-config-data/signalk-to-influxdb2.json")" "600"

@@ -33,10 +33,17 @@ mkdir -p "${SIGNALK_DATA}"
 # framework sources this under set -e, so a non-zero return here withholds the
 # app -- the correct outcome when the alternative is root writing to a path the
 # container chose.
-drop_symlink() {
+drop_symlink() {  # $1 = path, $2 = optional consequence to warn about
     [ -L "$1" ] || return 0
     echo "WARNING: removing unexpected symlink at $1"
-    rm -f "$1" || {
+    [ -n "${2:-}" ] && echo "WARNING: $2"
+    # -rf rather than -f: between the test above and this line the path can turn
+    # into a real directory, which rm -f refuses -- and a non-zero return here
+    # withholds the app on every boot until someone runs reset-failed by hand.
+    # Root can always clear a path whose parent it owns, so give it the chance
+    # before failing. Only a path that was a symlink a moment ago reaches this,
+    # so nothing an operator put here deliberately is at risk.
+    rm -rf "$1" || {
         echo "ERROR: could not remove ${1}; refusing to write through it"
         return 1
     }
@@ -44,7 +51,8 @@ drop_symlink() {
 # Parent before child: clearing a symlinked directory changes what the paths
 # below it resolve to.
 drop_symlink "${PLUGIN_CONFIG_DIR}"
-drop_symlink "${SECURITY_FILE}"
+drop_symlink "${SECURITY_FILE}" \
+    "a fresh security.json follows: the admin password and the JWT signing key are regenerated, so existing tokens and device approvals stop validating, and whatever the link pointed at is left where it is"
 drop_symlink "${PLUGIN_CONFIG}"
 
 # Earlier versions created both of these 0644, so every already-deployed device
