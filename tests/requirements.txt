@@ -1,2 +1,6 @@
 pytest>=8.0.0
 pyyaml>=6.0
+# apps/signalk-server/prestart.sh hashes the admin password with it, and the
+# package declares python3-bcrypt as a runtime dependency. The harness does not
+# stub it: the python block that imports it is what the suite exercises.
+bcrypt>=4.0

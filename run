@@ -83,7 +83,7 @@ function test {
   #@ Category: Testing
   echo "🧪 Running tests..."
   docker run --rm -v "$(pwd):/workspace" -w /workspace python:3.11-slim \
-    bash -c "pip install -q pytest pyyaml && python -m pytest tests/ -v"
+    bash -c "pip install -q -r tests/requirements.txt && python -m pytest tests/ -v"
 }
 
 function test:watch {

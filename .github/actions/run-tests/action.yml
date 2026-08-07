@@ -11,7 +11,10 @@ runs:
 
     - name: Install dependencies
       shell: bash
-      run: pip install pytest pyyaml
+      # One source for all three consumers of these: this action, ./run test,
+      # and a bare local run. They drifted once already, and the CI-only copy
+      # meant ./run test failed on a dependency the suite needs.
+      run: pip install -r tests/requirements.txt
 
     - name: Run pytest tests
       shell: bash

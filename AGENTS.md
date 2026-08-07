@@ -226,15 +226,17 @@ pulls and boots the InfluxDB image.
 
 ### Signal K Prestart Hook
 
-`apps/signalk-server/prestart.sh` has a bash harness that stubs chown and bcrypt,
-so it needs no Docker, no network and no root. Unlike the InfluxDB harness it
-runs in CI, via `tests/test_signalk_prestart.py`:
+`apps/signalk-server/prestart.sh` has a bash harness that stubs chown, so it
+needs no Docker, no network and no root. bcrypt is not stubbed -- the python
+block that imports it is the thing under test -- so `python3-bcrypt` has to be
+installed to run this. Unlike the InfluxDB harness it runs in CI, via
+`tests/test_signalk_prestart.py`:
 
 ```bash
 ./tools/test-prestart.sh
 ```
 
-Two of the hook's jobs look like leftovers and are not:
+Three of the hook's jobs look like leftovers and are not:
 
 - **The InfluxDB config is written without checking that the plugin is
   installed.** The plugin is baked into the image, so the data volume holds no
@@ -242,6 +244,63 @@ Two of the hook's jobs look like leftovers and are not:
   `${SIGNALK_DATA}/node_modules/signalk-to-influxdb2` was false on every device
   that had not updated the plugin through the app store -- so the token was never
   written, the server started, and only the graphs stayed empty.
+- **Root never writes through a symlink into the data volume.** This hook hands
+  `${SIGNALK_DATA}` to uid 1000, so the container — and any host process running
+  as `pi`, which is the same uid — can unlink a file root is about to write and
+  leave a symlink behind. Two mechanisms, and the second is the one that
+  generalises. All of it happens in one `python3` block, because the shell
+  cannot express the constraints:
+
+  - Each parent directory is opened once (`O_DIRECTORY|O_NOFOLLOW`) and every
+    operation below is `*at`-relative to that descriptor. Guarding named paths
+    cannot cover a swapped *parent*, because each syscall re-resolves the whole
+    path.
+  - Creates go through `O_CREAT|O_EXCL|O_NOFOLLOW`, which refuses to follow a
+    link in one syscall. `set -o noclobber` is **not** equivalent and must not be
+    used for this: bash stats the path first and adds `O_EXCL` only when that
+    stat fails, so a symlink to a FIFO or a device is followed.
+  - Modes converge as `open(O_NOFOLLOW)` + `fchmod`. `chmod(2)` always
+    dereferences and has no `--no-dereference`.
+  - Reads add `O_NONBLOCK` and check the type through the descriptor.
+    `O_NOFOLLOW` refuses a symlink but not a FIFO, and an `O_RDONLY` open of one
+    blocks until a writer appears — for root as much as anyone.
+  - The predicate is the file *type*, not "is a symlink", so a directory, FIFO,
+    socket or device at one of these names is handled too.
+
+  A guard alone is check-then-use and only covers paths someone remembered to
+  name — a temp file one line away from a guarded path was a live
+  arbitrary-root-write until review found it. Prefer `O_EXCL` to adding another
+  path to the guard.
+
+  Refusing to start is the answer when `security.json` cannot be made safe: an
+  open Signal K is worse than an absent one. That licence is narrow. `ExecStartPre`
+  gets five restarts before systemd stops trying, so an abort the container can
+  trigger on demand, or one caused by a fault that redirects nothing (a
+  read-only filesystem, a lost race), is a permanent outage bought for nothing.
+  Every failure path needs deciding in both directions.
+
+  Scope: this is a property of *this hook*, not of the directory. Anything else
+  that writes there as root needs the same care — `signalk-halpi`'s postinst
+  writes `plugin-config-data/signalk-halpi.json` and `package.json` into it and
+  does not have it (hatlabs/signalk-halpi#26).
+
+  `node_modules` is deliberately different: nothing here writes into it, so a
+  surviving symlink yields no root write, and one may be an operator relocating
+  the tree to another disk. Only a dangling one is cleared.
+
+  `${CONTAINER_DATA_ROOT}/admin-password` gets the same treatment even though its
+  parent is root-owned and outside the bind mount, so the rule holds by
+  construction rather than by luck. It is also never handed to the container: it
+  is the emergency login when OIDC is what broke, and a `chown` of it to uid 1000
+  would give away the one credential meant to outlive a compromise.
+
+  Paths that are safe today for a *different* reason, and would silently become
+  the same bug if that changed: `oidc-secret` and `$RUNTIME_ENV` are safe only
+  because their parent is root-owned and outside the bind mount; `settings.json`
+  and `package.json` only because they are `chown -h`'d and never written. Mount
+  `${CONTAINER_DATA_ROOT}` into a container, or add a `cat >` to `settings.json`,
+  and they are exposed.
+
 - **`node_modules` and `package.json` are handed to uid 1000 on every start.**
   `signalk-halpi`'s postinst creates both as root when it registers itself as a
   `file:` dependency, and the pi-gen plugin stages do the same on an imaged
