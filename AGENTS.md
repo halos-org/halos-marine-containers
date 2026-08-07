@@ -307,6 +307,37 @@ Three of the hook's jobs look like leftovers and are not:
   device. Left root-owned, every app-store plugin install fails EACCES forever --
   and app-store updates are the only thing keeping a baked plugin updatable.
 
+### The baked Signal K connections
+
+`apps/signalk-server/default-data/data/settings.json` spells out the gpsd
+connection's `pipeElements` by hand. That has two consequences that are invisible
+from the file itself, and `settings.json` cannot carry a comment saying so.
+
+**A hand-authored array does not get what `providers/simple` adds.** Signal K
+assembles connections created through the admin UI via `providers/simple`, and
+that assembly is where upstream puts stream fixes. The gpsd branch there is
+`[new Gpsd(subOptions), new Liner(subOptions)]` — a line splitter, added in
+v2.25.0 because gpsd coalesces a whole NMEA reporting cycle into one TCP write
+and the parser cannot read several sentences as one blob. Our array bypassed that
+branch and so lacked the splitter, which meant the connection produced no
+position at any pinned version; upgrading the server could never have fixed it.
+`tests/test_signalk_settings.py` guards the splitter and its position in the
+pipeline. Anything else `simple` acquires upstream has to be mirrored here by
+hand, and nothing will tell us when that happens.
+
+The same choice costs operator control: `editable: true` is set only for a
+`providers/simple` element, so a hand-authored connection renders in the admin UI
+as a read-only textarea whose only action is Delete.
+
+**`default-data/` seeds copy-if-absent.** The generated postinst copies each file
+only `if [ ! -f "$dst_file" ]`, and this app's `prestart.sh` deliberately never
+writes `settings.json` (see the symlink-hardening notes above — adding a write
+there is what would expose it). So a change to this file reaches devices with no
+`settings.json` yet, and nothing else. Fielded devices keep whatever they were
+first seeded with, while `apt` reports success and the app version bumps. This is
+the same reach constraint as the baked plugin set below, and a fix here needs the
+same explicit decision: migrate, or accept and say so.
+
 ### Signal K Plugin Set
 
 The curated plugins are baked into the image, not installed at runtime. They live

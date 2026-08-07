@@ -10,8 +10,7 @@
           "options": {
             "hostname": "localhost",
             "port": 2947,
-            "noDataReceivedTimeout": 30,
-            "reconnectInterval": 15
+            "noDataReceivedTimeout": 30
           }
         },
         {
