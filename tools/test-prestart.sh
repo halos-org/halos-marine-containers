@@ -36,7 +36,7 @@ setup() {
     SANDBOX="$(mktemp -d)"
     DATA="${SANDBOX}/data"
     SK="${DATA}/data"
-    mkdir -p "${SK}" "${SANDBOX}/bin"
+    mkdir -p "${SK}" "${SANDBOX}/bin" "${SANDBOX}/pylib"
     STUB_LOG="${SANDBOX}/chown.log"; : > "${STUB_LOG}"
     export STUB_LOG
 
@@ -57,14 +57,13 @@ for arg in "$@"; do
     }
 done
 STUB
-    # bcrypt is not installed on a dev machine; every other python3 call is real.
+    # python3 is passed straight through. bcrypt used to be stubbed here, but the
+    # hook now does all its filesystem work in one python3 block that imports
+    # bcrypt directly -- and that block IS the thing under test, so intercepting
+    # it would gut the suite. bcrypt is a declared package dependency
+    # (python3-bcrypt); install it locally to run this.
     cat > "${SANDBOX}/bin/python3" <<'STUB'
 #!/bin/bash
-if [ "${1:-}" = "-c" ] && [[ "${2:-}" == *bcrypt* ]]; then
-    cat >/dev/null
-    echo '$2b$12$stubhashstubhashstubhashstubhashstubhas'
-    exit 0
-fi
 exec "${REAL_PYTHON3}" "$@"
 STUB
     chmod 755 "${SANDBOX}/bin"/*
@@ -84,6 +83,7 @@ run_hook() {  # echoes exit status
         RUNTIME_ENV="${SANDBOX}/runtime.env" \
         HALOS_DOMAIN="test.local" \
         INFLUXDB_ENV="${SANDBOX}/influxdb.env" \
+        PYTHONPATH="${SANDBOX}/pylib" \
         bash -c 'set -e; . "$1"' _ "${HOOK}" > "${SANDBOX}/out" 2>&1
     echo $?
 }
@@ -205,25 +205,118 @@ check "a relocated node_modules is left in place" "$(run_hook)" "0"
     ok "  the symlink survives" || bad "  the symlink survives" "symlink was replaced"
 teardown
 
-# The one path in this hook that deliberately takes the unit down. If the symlink
-# cannot be removed, writing through it is worse than not starting -- but that
-# tradeoff is only defensible if it actually happens, so pin it.
+# A plain directory at a guarded path was a race-free boot wedge: the old guard
+# only fired on [ -L ], so cat > failed "Is a directory" on every single boot and
+# five of those put the unit in `failed`. One mkdir from uid 1000 was enough.
 setup
-ln -s /nonexistent "${SK}/security.json"
-cat > "${SANDBOX}/bin/rm" <<'STUB'
+mkdir -p "${SK}/security.json"
+check "a directory at security.json does not wedge the unit" "$(run_hook)" "0"
+[ -f "${SK}/security.json" ] && [ ! -d "${SK}/security.json" ] &&
+    ok "  a real security.json is created" ||
+    bad "  a real security.json is created" "$(ls -ld "${SK}/security.json")"
+[ -d "${SK}/security.json.unexpected" ] &&
+    ok "  the directory is moved aside, not deleted" ||
+    bad "  the directory is moved aside, not deleted" "no .unexpected directory"
+teardown
+
+# A FIFO is the case bash's noclobber silently followed: with a reader attached
+# the old hook logged "Security initialized", wrote nothing to disk, and streamed
+# the admin hash and JWT signing key to whoever held the read end.
+setup
+mkfifo "${SK}/security.json"
+( timeout 10 cat "${SK}/security.json" > "${SANDBOX}/leak" 2>/dev/null & )
+check "a FIFO at security.json does not leak the secrets" "$(run_hook)" "0"
+sleep 0.3
+[ ! -s "${SANDBOX}/leak" ] &&
+    ok "  nothing was streamed to the reader" ||
+    bad "  nothing was streamed to the reader" "$(head -c 120 "${SANDBOX}/leak")"
+[ -f "${SK}/security.json" ] && [ ! -p "${SK}/security.json" ] &&
+    ok "  a real security.json replaces it" ||
+    bad "  a real security.json replaces it" "$(ls -ld "${SK}/security.json")"
+grep -q secretKey "${SK}/security.json" 2>/dev/null &&
+    ok "  with the secrets on disk where they belong" ||
+    bad "  with the secrets on disk where they belong" "$(cat "${SK}/security.json" 2>&1)"
+teardown
+
+# Everything above plants its hostile object BEFORE the hook runs, where the type
+# check clears it -- so none of it exercises O_EXCL. This one plants from INSIDE
+# the run, which is the only condition O_EXCL exists for.
+#
+# The hook hashes the admin password between clearing the path and creating it,
+# so a bcrypt shim on PYTHONPATH fires in exactly that window -- deterministic,
+# no sleeps, no spin loop. Reverting the create to O_TRUNC, to open(,'w'), or to
+# touch+chmod+cat must fail this.
+setup
+CANARY="${SANDBOX}/outside-the-data-root"
+printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
+cat > "${SANDBOX}/pylib/bcrypt.py" <<SHIM
+import os
+def gensalt(*a, **k):
+    return b"\$2b\$12\$stubsaltstubsaltstubsa"
+def hashpw(pw, salt):
+    # the racer wins the window: the path was just cleared, so this succeeds
+    os.symlink("${CANARY}", "${SK}/security.json")
+    return b"\$2b\$12\$stubhashstubhashstubhashstubhashstubhas"
+SHIM
+run_hook > /dev/null 2>&1
+[ "$(cat "${CANARY}")" = "original" ] &&
+    ok "a symlink planted after the clear is not written through" ||
+    bad "a symlink planted after the clear is not written through" "$(cat "${CANARY}")"
+check "  and the link target keeps its mode" "$(mode "${CANARY}")" "644"
+teardown
+
+# A plain directory at a guarded path was a race-free boot wedge: the old guard
+# only fired on [ -L ], so cat > failed "Is a directory" on every single boot and
+# five of those put the unit in `failed`. One mkdir from uid 1000 was enough.
+setup
+mkdir -p "${SK}/security.json"
+check "a directory at security.json does not wedge the unit" "$(run_hook)" "0"
+[ -f "${SK}/security.json" ] && [ ! -d "${SK}/security.json" ] &&
+    ok "  a real security.json is created" ||
+    bad "  a real security.json is created" "$(ls -ld "${SK}/security.json")"
+[ -d "${SK}/security.json.unexpected" ] &&
+    ok "  the directory is moved aside, not deleted" ||
+    bad "  the directory is moved aside, not deleted" "no .unexpected directory"
+teardown
+
+# A FIFO is the case bash's noclobber silently followed: with a reader attached
+# the old hook logged "Security initialized", wrote nothing to disk, and streamed
+# the admin hash and JWT signing key to whoever held the read end.
+setup
+mkfifo "${SK}/security.json"
+( timeout 10 cat "${SK}/security.json" > "${SANDBOX}/leak" 2>/dev/null & )
+check "a FIFO at security.json does not leak the secrets" "$(run_hook)" "0"
+sleep 0.3
+[ ! -s "${SANDBOX}/leak" ] &&
+    ok "  nothing was streamed to the reader" ||
+    bad "  nothing was streamed to the reader" "$(head -c 120 "${SANDBOX}/leak")"
+[ -f "${SK}/security.json" ] && [ ! -p "${SK}/security.json" ] &&
+    ok "  a real security.json replaces it" ||
+    bad "  a real security.json replaces it" "$(ls -ld "${SK}/security.json")"
+grep -q secretKey "${SK}/security.json" 2>/dev/null &&
+    ok "  with the secrets on disk where they belong" ||
+    bad "  with the secrets on disk where they belong" "$(cat "${SK}/security.json" 2>&1)"
+teardown
+
+# Everything above plants its hostile object BEFORE the hook runs, where the type
+# check clears it -- so none of it exercises O_EXCL. This one re-plants from
+# inside the run, which is the only condition O_EXCL exists for. Reverting the
+# create to open(,'w') or to touch+chmod+cat must fail here.
+setup
+CANARY="${SANDBOX}/outside-the-data-root"
+printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
+cat > "${SANDBOX}/bin/openssl" <<STUB
 #!/bin/bash
-for arg in "$@"; do
-    case "$arg" in */security.json) echo "rm: cannot remove" >&2; exit 1 ;; esac
-done
-exec /bin/rm "$@"
+# stands in for a uid-1000 process winning the window after the clear
+ln -sfn "${CANARY}" "${SK}/security.json"
+exec /usr/bin/openssl "\$@"
 STUB
-chmod 755 "${SANDBOX}/bin/rm"
-st=$(run_hook)
-[ "$st" != "0" ] &&
-    ok "an unremovable symlink withholds the app rather than writing through" ||
-    bad "an unremovable symlink withholds the app rather than writing through" "exit 0"
-grep -q 'refusing to write through it' "${SANDBOX}/out" &&
-    ok "  and says why" || bad "  and says why" "$(cat "${SANDBOX}/out")"
+chmod 755 "${SANDBOX}/bin/openssl"
+run_hook > /dev/null 2>&1
+[ "$(cat "${CANARY}")" = "original" ] &&
+    ok "a symlink planted after the clear is not written through" ||
+    bad "a symlink planted after the clear is not written through" "$(cat "${CANARY}")"
+check "  and the link target keeps its mode" "$(mode "${CANARY}")" "644"
 teardown
 
 # A full data partition is the realistic trigger: mkdir needs a block, the chmods
@@ -262,7 +355,7 @@ check "  the link target keeps its mode" "$(mode "${CANARY}")" "644"
     ok "  a real security.json replaces the link" ||
     bad "  a real security.json replaces the link" "$(ls -ld "${SK}/security.json")"
 check "  and is 0600" "$(mode "${SK}/security.json")" "600"
-grep -q 'removing unexpected symlink' "${SANDBOX}/out" &&
+grep -q 'unexpected symlink at' "${SANDBOX}/out" &&
     ok "  the removal is logged" || bad "  the removal is logged" "$(cat "${SANDBOX}/out")"
 teardown
 
