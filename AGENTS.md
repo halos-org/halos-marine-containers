@@ -313,8 +313,8 @@ systemctl reset-failed marine-signalk-server-container.service
 systemctl start marine-signalk-server-container.service
 ```
 
-This is fleet-wide, not specific to Signal K: every marine app pins an exact tag
-and fetches it the same way. Tracked in halos-org/container-packaging-tools#241.
+This is not specific to Signal K: every container app the generator emits pins an
+exact tag and fetches it the same way. Tracked in halos-org/container-packaging-tools#241.
 
 ### Authentication Negative Tests
 
