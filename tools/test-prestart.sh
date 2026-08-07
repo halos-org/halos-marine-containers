@@ -125,6 +125,9 @@ echo "prestart.sh behaviour"
 setup
 check "fresh install exits 0" "$(run_hook)" "0"
 check "  security.json is 0600" "$(mode "${SK}/security.json")" "600"
+chowned "${SK}/security.json" &&
+    ok "  security.json handed over with -h" ||
+    bad "  security.json handed over with -h" "$(cat "${STUB_LOG}")"
 check "  admin-password is 0600" "$(mode "${DATA}/admin-password")" "600"
 teardown
 
@@ -200,6 +203,27 @@ ln -s "${SANDBOX}/elsewhere" "${SK}/node_modules"
 check "a relocated node_modules is left in place" "$(run_hook)" "0"
 [ -L "${SK}/node_modules" ] &&
     ok "  the symlink survives" || bad "  the symlink survives" "symlink was replaced"
+teardown
+
+# The one path in this hook that deliberately takes the unit down. If the symlink
+# cannot be removed, writing through it is worse than not starting -- but that
+# tradeoff is only defensible if it actually happens, so pin it.
+setup
+ln -s /nonexistent "${SK}/security.json"
+cat > "${SANDBOX}/bin/rm" <<'STUB'
+#!/bin/bash
+for arg in "$@"; do
+    case "$arg" in */security.json) echo "rm: cannot remove" >&2; exit 1 ;; esac
+done
+exec /bin/rm "$@"
+STUB
+chmod 755 "${SANDBOX}/bin/rm"
+st=$(run_hook)
+[ "$st" != "0" ] &&
+    ok "an unremovable symlink withholds the app rather than writing through" ||
+    bad "an unremovable symlink withholds the app rather than writing through" "exit 0"
+grep -q 'refusing to write through it' "${SANDBOX}/out" &&
+    ok "  and says why" || bad "  and says why" "$(cat "${SANDBOX}/out")"
 teardown
 
 # A full data partition is the realistic trigger: mkdir needs a block, the chmods
@@ -278,6 +302,28 @@ check "a symlinked influx config does not wedge the unit" "$(run_hook)" "0"
 check "  the link target keeps its mode" "$(mode "${CANARY}")" "644"
 check "  a real config replaces the link, 0600" \
     "$(mode "${SK}/plugin-config-data/signalk-to-influxdb2.json")" "600"
+teardown
+
+# The token-rewrite branch writes a sibling temp file, and plugin-config-data is
+# chowned to uid 1000 on every run -- so the container can plant the .tmp path as
+# a symlink and redirect root's write through a path the guard never names. Needs
+# an existing config so the run takes the update branch rather than the create.
+setup
+CANARY="${SANDBOX}/outside-the-data-root"
+printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
+mkdir -p "${SK}/plugin-config-data"
+printf '{"configuration":{"influxes":[{"token":"stale"}]}}\n' \
+    > "${SK}/plugin-config-data/signalk-to-influxdb2.json"
+ln -s "${CANARY}" "${SK}/plugin-config-data/signalk-to-influxdb2.json.tmp"
+influx_available tok-tmplink
+check "a symlinked .tmp does not redirect the token rewrite" "$(run_hook)" "0"
+[ "$(cat "${CANARY}")" = "original" ] &&
+    ok "  the link target is not written through" ||
+    bad "  the link target is not written through" "$(cat "${CANARY}")"
+check "  the link target keeps its mode" "$(mode "${CANARY}")" "644"
+grep -q tok-tmplink "${SK}/plugin-config-data/signalk-to-influxdb2.json" &&
+    ok "  and the real config still gets the token" ||
+    bad "  and the real config still gets the token" "$(cat "${SK}/plugin-config-data/signalk-to-influxdb2.json")"
 teardown
 
 # A symlinked plugin-config-data directory redirects everything below it, so the

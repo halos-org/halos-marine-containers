@@ -73,11 +73,20 @@ if [ ! -f "${SECURITY_FILE}" ]; then
     # Generate a secret key for JWT tokens
     SECRET_KEY=$(openssl rand -hex 32)
 
-    # Holds the admin bcrypt hash and the JWT signing key. Restricted before the
-    # first write rather than after, so the secrets never sit in a 0644 file.
-    touch "${SECURITY_FILE}"
-    chmod 600 "${SECURITY_FILE}"
-    cat > "${SECURITY_FILE}" << EOF
+    # Holds the admin bcrypt hash and the JWT signing key.
+    #
+    # noclobber, not touch-then-chmod: it makes bash open with O_CREAT|O_EXCL,
+    # which refuses to follow a symlink at the final component. The guard near
+    # the top clears a link that is already there, but the container owns this
+    # directory and can plant one in the window between that check and here --
+    # O_EXCL closes the window instead of narrowing it, in one syscall. umask
+    # 077 means the secrets are 0600 from creation rather than briefly 0644
+    # between touch and chmod. Subshell so neither setting leaks to the rest of
+    # the hook.
+    (
+        umask 077
+        set -o noclobber
+        cat > "${SECURITY_FILE}" << EOF
 {
   "strategy": "./tokensecurity",
   "users": [
@@ -91,12 +100,12 @@ if [ ! -f "${SECURITY_FILE}" ]; then
   "secretKey": "${SECRET_KEY}"
 }
 EOF
+    )
 
     # Set proper ownership (match container user - node:node is 1000:1000).
-    # -h like every other chown here: the guard above clears a symlink before we
-    # start writing, but the container owns this directory and can plant a fresh
-    # one in the window between that check and this line. -h makes the race
-    # unwinnable rather than merely unlikely.
+    # -h like every other chown here, so a link planted between the O_EXCL create
+    # above and this line is not followed. With the create no longer
+    # dereferencing, this is the last operation in the branch that could.
     chown -h 1000:1000 "${SECURITY_FILE}"
 
     echo "Security initialized with admin user."
@@ -138,9 +147,13 @@ if [ -f "${INFLUXDB_ENV}" ]; then
         # Write plugin config (first time only) or update token
         mkdir -p "${PLUGIN_CONFIG_DIR}"
         if [ ! -f "${PLUGIN_CONFIG}" ]; then
-            # Carries the InfluxDB admin token.
-            touch "${PLUGIN_CONFIG}"
-            chmod 600 "${PLUGIN_CONFIG}"
+            # Carries the InfluxDB admin token. umask + noclobber for the same
+            # reason as security.json above: O_CREAT|O_EXCL will not follow a
+            # symlink planted after the guard ran, and the token is never
+            # briefly world-readable.
+            (
+            umask 077
+            set -o noclobber
             cat > "${PLUGIN_CONFIG}" << PLUGINEOF
 {
   "enabled": true,
@@ -158,6 +171,7 @@ if [ -f "${INFLUXDB_ENV}" ]; then
   }
 }
 PLUGINEOF
+            )
             echo "InfluxDB plugin configured"
         else
             # Update token in existing config without overwriting other settings
@@ -174,10 +188,23 @@ with open(path) as f:
 influxes = cfg.get('configuration', {}).get('influxes', [])
 if influxes:
     influxes[0]['token'] = os.environ['INFLUX_TOKEN']
+# O_EXCL rather than open(tmp, 'w'): this directory is handed to uid 1000 on
+# every run, so the container can pre-create the temp path as a symlink and
+# redirect root's write exactly as it could the config itself. O_CREAT|O_EXCL
+# refuses to follow a symlink at the final component, and does it in one
+# syscall -- unlike a check-then-write guard, there is no window to lose. The
+# unlink clears a leftover from a killed run; if the link is re-planted in
+# between, the open fails and the shell branch below reports it, which is the
+# right direction to fail.
 tmp = path + '.tmp'
-with open(tmp, 'w') as f:
+try:
+    os.unlink(tmp)
+except FileNotFoundError:
+    pass
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+os.fchmod(fd, 0o600)  # explicit: the mode above is masked by umask
+with os.fdopen(fd, 'w') as f:
     json.dump(cfg, f, indent=2)
-os.chmod(tmp, 0o600)
 os.replace(tmp, path)
 PYEOF
                 echo "InfluxDB plugin token updated"

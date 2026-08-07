@@ -234,7 +234,7 @@ runs in CI, via `tests/test_signalk_prestart.py`:
 ./tools/test-prestart.sh
 ```
 
-Two of the hook's jobs look like leftovers and are not:
+Three of the hook's jobs look like leftovers and are not:
 
 - **The InfluxDB config is written without checking that the plugin is
   installed.** The plugin is baked into the image, so the data volume holds no
