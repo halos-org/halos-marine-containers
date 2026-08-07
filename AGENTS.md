@@ -242,6 +242,15 @@ Two of the hook's jobs look like leftovers and are not:
   `${SIGNALK_DATA}/node_modules/signalk-to-influxdb2` was false on every device
   that had not updated the plugin through the app store -- so the token was never
   written, the server started, and only the graphs stayed empty.
+- **Symlinks are cleared from the paths root writes, before it writes them.**
+  `security.json`, `plugin-config-data/` and the InfluxDB token config all live
+  in a directory this hook hands to uid 1000, so the container can unlink any of
+  them and leave a symlink behind. `chmod`, `touch` and `cat >` all dereference,
+  which turns a container foothold into a host-root write. Root never creates a
+  symlink at those paths, so removing one only ever undoes tampering — unlike
+  `node_modules`, where a symlink may be a deliberate relocation and only a
+  dangling one is cleared.
+
 - **`node_modules` and `package.json` are handed to uid 1000 on every start.**
   `signalk-halpi`'s postinst creates both as root when it registers itself as a
   `file:` dependency, and the pi-gen plugin stages do the same on an imaged

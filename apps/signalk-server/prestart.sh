@@ -14,6 +14,39 @@ PLUGIN_CONFIG="${PLUGIN_CONFIG_DIR}/signalk-to-influxdb2.json"
 # Create data directory if needed
 mkdir -p "${SIGNALK_DATA}"
 
+# Root writes the files below, and their parent is handed to uid 1000 at the end
+# of this hook -- so the container can unlink any of them and leave a symlink in
+# its place. Every operation that follows dereferences: chmod, touch, cat >, and
+# the chown on security.json. Left unguarded that is a container-to-host-root
+# escalation, reproduced against /etc/ld.so.preload: root creates the target,
+# writes the JSON into it, and hands it to uid 1000, which then writes a .so path
+# every later root process preloads. The existing-target variant is a tamper
+# primitive on its own -- the chmod 600 alone strips the mode off whatever the
+# link points at.
+#
+# Root never creates a symlink at any of these paths, so removing one is only
+# ever undoing tampering. node_modules further down is deliberately different:
+# a symlink there can be an operator relocating the plugin tree to another disk,
+# so only a dangling one is cleared.
+#
+# Failing to clear one aborts the hook rather than writing through it. The
+# framework sources this under set -e, so a non-zero return here withholds the
+# app -- the correct outcome when the alternative is root writing to a path the
+# container chose.
+drop_symlink() {
+    [ -L "$1" ] || return 0
+    echo "WARNING: removing unexpected symlink at $1"
+    rm -f "$1" || {
+        echo "ERROR: could not remove ${1}; refusing to write through it"
+        return 1
+    }
+}
+# Parent before child: clearing a symlinked directory changes what the paths
+# below it resolve to.
+drop_symlink "${PLUGIN_CONFIG_DIR}"
+drop_symlink "${SECURITY_FILE}"
+drop_symlink "${PLUGIN_CONFIG}"
+
 # Earlier versions created both of these 0644, so every already-deployed device
 # carries the admin hash, the JWT signing key and the InfluxDB admin token in a
 # world-readable file. Restricted here rather than only at creation, because on
@@ -59,8 +92,12 @@ if [ ! -f "${SECURITY_FILE}" ]; then
 }
 EOF
 
-    # Set proper ownership (match container user - node:node is 1000:1000)
-    chown 1000:1000 "${SECURITY_FILE}"
+    # Set proper ownership (match container user - node:node is 1000:1000).
+    # -h like every other chown here: the guard above clears a symlink before we
+    # start writing, but the container owns this directory and can plant a fresh
+    # one in the window between that check and this line. -h makes the race
+    # unwinnable rather than merely unlikely.
+    chown -h 1000:1000 "${SECURITY_FILE}"
 
     echo "Security initialized with admin user."
     echo "NOTE: Local admin password stored in ${CONTAINER_DATA_ROOT}/admin-password"

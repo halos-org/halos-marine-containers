@@ -220,6 +220,82 @@ grep -q "WARNING: could not create" "${SANDBOX}/out" &&
     ok "  and says so" || bad "  and says so" "$(cat "${SANDBOX}/out")"
 teardown
 
+# The container owns ${SIGNALK_DATA}, so it can replace any file root writes
+# there with a symlink and redirect the write. chmod, touch and cat > all
+# dereference. The canary lives outside the data root: if the hook writes
+# through the link, the canary changes, and that is a container-to-host-root
+# escalation on a real device.
+setup
+CANARY="${SANDBOX}/outside-the-data-root"
+printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
+ln -s "${CANARY}" "${SK}/security.json"
+check "a symlinked security.json does not wedge the unit" "$(run_hook)" "0"
+[ "$(cat "${CANARY}")" = "original" ] &&
+    ok "  the link target is not written through" ||
+    bad "  the link target is not written through" "$(cat "${CANARY}")"
+check "  the link target keeps its mode" "$(mode "${CANARY}")" "644"
+[ -f "${SK}/security.json" ] && [ ! -L "${SK}/security.json" ] &&
+    ok "  a real security.json replaces the link" ||
+    bad "  a real security.json replaces the link" "$(ls -ld "${SK}/security.json")"
+check "  and is 0600" "$(mode "${SK}/security.json")" "600"
+grep -q 'removing unexpected symlink' "${SANDBOX}/out" &&
+    ok "  the removal is logged" || bad "  the removal is logged" "$(cat "${SANDBOX}/out")"
+teardown
+
+# The full escalation needs a DANGLING link. A link to an existing file satisfies
+# [ -f ], so the hook takes its "already exists" branch and only strips the mode;
+# a link to a path that does not exist takes the create branch, where touch
+# creates the target, cat > writes the admin hash and JWT key into it, and chown
+# hands it to uid 1000. That is the /etc/ld.so.preload chain, and the assertion
+# that matters is that the target path is never created at all.
+setup
+TARGET="${SANDBOX}/does-not-exist-yet"
+ln -s "${TARGET}" "${SK}/security.json"
+check "a dangling security.json link does not wedge the unit" "$(run_hook)" "0"
+[ ! -e "${TARGET}" ] &&
+    ok "  root never creates the link target" ||
+    bad "  root never creates the link target" "created: $(ls -l "${TARGET}"; cat "${TARGET}")"
+[ -f "${SK}/security.json" ] && [ ! -L "${SK}/security.json" ] &&
+    ok "  a real security.json is created instead" ||
+    bad "  a real security.json is created instead" "$(ls -ld "${SK}/security.json")"
+grep -q secretKey "${SK}/security.json" &&
+    ok "  with the generated secrets in it" ||
+    bad "  with the generated secrets in it" "$(cat "${SK}/security.json")"
+teardown
+
+# Same attack against the InfluxDB token config, whose parent is equally
+# container-writable. The token is the InfluxDB admin credential.
+setup
+CANARY="${SANDBOX}/outside-the-data-root"
+printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
+mkdir -p "${SK}/plugin-config-data"
+ln -s "${CANARY}" "${SK}/plugin-config-data/signalk-to-influxdb2.json"
+influx_available tok-symlink
+check "a symlinked influx config does not wedge the unit" "$(run_hook)" "0"
+[ "$(cat "${CANARY}")" = "original" ] &&
+    ok "  no token written through the link" ||
+    bad "  no token written through the link" "$(cat "${CANARY}")"
+check "  the link target keeps its mode" "$(mode "${CANARY}")" "644"
+check "  a real config replaces the link, 0600" \
+    "$(mode "${SK}/plugin-config-data/signalk-to-influxdb2.json")" "600"
+teardown
+
+# A symlinked plugin-config-data directory redirects everything below it, so the
+# parent has to be cleared before the child path is even resolved.
+setup
+OUTSIDE="${SANDBOX}/outside-dir"
+mkdir -p "${OUTSIDE}"
+ln -s "${OUTSIDE}" "${SK}/plugin-config-data"
+influx_available tok-dirlink
+check "a symlinked plugin-config-data does not wedge the unit" "$(run_hook)" "0"
+[ ! -e "${OUTSIDE}/signalk-to-influxdb2.json" ] &&
+    ok "  nothing written into the link target" ||
+    bad "  nothing written into the link target" "$(ls -l "${OUTSIDE}")"
+[ -d "${SK}/plugin-config-data" ] && [ ! -L "${SK}/plugin-config-data" ] &&
+    ok "  a real directory replaces the link" ||
+    bad "  a real directory replaces the link" "$(ls -ld "${SK}/plugin-config-data")"
+teardown
+
 # apps/influxdb/prestart.sh has paths that leave the env file without a usable
 # token. With the plugin-presence gate gone, the emptiness check is the only
 # thing standing between that and a config naming the database with no
