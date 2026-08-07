@@ -11,10 +11,10 @@ runs:
 
     - name: Install dependencies
       shell: bash
-      # bcrypt: apps/signalk-server/prestart.sh hashes the admin password
-      # with it, and the package declares python3-bcrypt as a runtime
-      # dependency. The harness used to stub it; the hook now imports it.
-      run: pip install pytest pyyaml bcrypt
+      # One source for all three consumers of these: this action, ./run test,
+      # and a bare local run. They drifted once already, and the CI-only copy
+      # meant ./run test failed on a dependency the suite needs.
+      run: pip install -r tests/requirements.txt
 
     - name: Run pytest tests
       shell: bash

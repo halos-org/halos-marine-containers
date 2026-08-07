@@ -99,7 +99,7 @@ def test_prestart_is_executable():
 
 
 def test_prestart_hook_behaves():
-    """Run the hook against a sandbox with stubbed chown/bcrypt.
+    """Run the hook against a sandbox with chown stubbed.
 
     It writes the admin hash, the JWT key and the InfluxDB token. Their modes are
     a property of the filesystem after it runs, which no assertion on the
