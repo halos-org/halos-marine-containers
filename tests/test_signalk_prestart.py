@@ -46,9 +46,13 @@ def test_image_is_the_baked_one_at_an_exact_tag():
     assert repo == "ghcr.io/halos-org/signalk-server-docker", (
         f"not the baked image: {refs[0]}"
     )
-    # <upstream version>-<build revision>, the shape signalk-server-docker
-    # publishes. Rejects latest, a bare version, and any moving alias.
-    assert re.fullmatch(r"\d+\.\d+\.\d+-\d+", tag), f"not an exact tag: {tag!r}"
+    # v<upstream version>-halos.<build revision>, the shape
+    # signalk-server-docker publishes. The `-halos.` separator is what tells
+    # upstream's version from our build revision; anything reading the tag
+    # splits on it. Rejects latest, a bare version, and any moving alias.
+    assert re.fullmatch(r"v\d+\.\d+\.\d+-halos\.\d+", tag), (
+        f"not an exact tag: {tag!r}"
+    )
 
 
 def test_image_exists_in_the_registry():

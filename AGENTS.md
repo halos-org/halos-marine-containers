@@ -318,9 +318,11 @@ bumping `apps/signalk-server/metadata.yaml`.
 The tag is always exact, and `tests/test_signalk_prestart.py` enforces it.
 Nothing in the curated set is version-pinned (matching upstream), so a rebuild
 resolves a different plugin set -- a floating tag would swap the image underneath
-a verification that had already passed. The tag's `-N` is the image build
-revision; `metadata.yaml`'s `-N` is the package revision. They count
-independently and are not expected to match.
+a verification that had already passed. The tag is
+`v<upstream version>-halos.<build revision>`; `-halos.` is what separates
+upstream's version from ours, and anything reading the tag splits on it. That
+build revision and `metadata.yaml`'s `-N` package revision count independently
+and are not expected to match.
 
 **The baked set only reaches devices whose data volume does not already contain
 those packages.** Signal K resolves `configPath/node_modules` (the data volume)
