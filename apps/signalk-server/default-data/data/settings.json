@@ -15,6 +15,9 @@
           }
         },
         {
+          "type": "providers/liner"
+        },
+        {
           "type": "providers/nmea0183-signalk"
         }
       ],
