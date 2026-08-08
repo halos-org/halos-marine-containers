@@ -1,12 +1,4 @@
-"""Tests for the Signal K settings seeded into a new data volume.
-
-These assertions cover the *hand-authored* form of the gpsd connection, where
-this repo spells out `pipeElements` itself. Signal K also accepts the connection
-as a single `providers/simple` element, which assembles the same pipeline
-internally and would make the line splitter automatic; if the baked config ever
-moves to that form, these checks stop applying and should move with it rather
-than be forced to pass.
-"""
+"""Tests for the Signal K settings seeded into a new data volume."""
 
 import json
 from pathlib import Path
@@ -22,8 +14,8 @@ SETTINGS = (
     / "settings.json"
 )
 
-# The gpsd daemon's own default, and what the host service listens on. Signal K
-# runs with network_mode: host, so localhost here is the host's gpsd.
+# gpsd's own default port, and what the host service listens on. Signal K runs
+# with network_mode: host, so localhost here is the host's gpsd.
 GPSD_HOST = "localhost"
 GPSD_PORT = 2947
 
@@ -40,47 +32,47 @@ def gpsd_provider(settings):
     return providers[0]
 
 
-def hand_authored_elements(provider):
-    """Element types, or a skip when the connection is not hand-authored."""
-    types = [e["type"] for e in provider["pipeElements"]]
-    if "providers/simple" in types:
-        pytest.skip("connection is built by providers/simple, which adds its own liner")
-    return types
+def test_gpsd_connection_is_assembled_by_the_server(settings):
+    """The pipeline must be built by providers/simple, not spelled out here.
 
+    Signal K assembles a gpsd connection as Gpsd -> Liner -> nmea0183-signalk.
+    The Liner matters: gpsd writes a whole NMEA reporting cycle in one TCP
+    write, and without a splitter the parser receives several sentences as one
+    blob and rejects all of them. Verified against the pinned image with a gpsd
+    that writes ZDA+GGA+RMC in a single write: spelled out by hand without a
+    liner, the parser logs one error whose content is all three sentences
+    concatenated; through providers/simple, all three parse.
 
-def test_gpsd_pipeline_splits_lines_before_parsing(settings):
-    """gpsd writes a whole NMEA reporting cycle in one TCP write.
-
-    Without a splitter between the source and the parser, nmea0183-signalk sees
-    several sentences as one unparseable blob and position never arrives -- only
-    a sentence that happens to land alone in a write gets through. Verified
-    against the pinned server: one CRLF-terminated ZDA+GGA+RMC burst delivered
-    as a single write produces one delta without the liner and three, including
-    navigation.position, with it.
-
-    Upstream inserts the Liner for gpsd connections built through
-    providers/simple, and has since v2.25.0. A hand-authored pipeElements array
-    bypasses that branch, so no amount of upgrading signalk-server can supply it.
+    Spelling the elements out here means the pipeline stops tracking upstream --
+    that is exactly how the Liner came to be missing, and no server upgrade
+    could supply it. It also costs operator control: the server marks a
+    connection editable only when it is a single providers/simple element, so a
+    hand-authored one appears in the admin UI as a read-only box whose only
+    action is Delete.
     """
-    elements = hand_authored_elements(gpsd_provider(settings))
+    elements = gpsd_provider(settings)["pipeElements"]
 
-    assert "providers/liner" in elements, (
-        "gpsd connection has no line splitter; multi-sentence writes will not parse"
+    assert len(elements) == 1, (
+        "the gpsd connection must be one providers/simple element; spelling out "
+        "the pipeline stops it tracking upstream and makes it uneditable"
     )
-    assert elements.index("providers/gpsd") < elements.index("providers/liner")
-    assert elements.index("providers/liner") < elements.index(
-        "providers/nmea0183-signalk"
-    ), "the liner must sit between the gpsd source and the NMEA parser"
+    assert elements[0]["type"] == "providers/simple"
+
+    options = elements[0]["options"]
+    assert options["type"] == "NMEA0183"
+    assert options["subOptions"]["type"] == "gpsd"
 
 
 def test_gpsd_connection_points_at_the_host_daemon(settings):
     """A wrong endpoint costs the position as completely as a missing splitter."""
-    elements = gpsd_provider(settings)["pipeElements"]
-    source = next(e for e in elements if e["type"] == "providers/gpsd")
-    options = source.get("options", {})
+    sub = gpsd_provider(settings)["pipeElements"][0]["options"]["subOptions"]
 
-    assert options.get("hostname", options.get("host")) == GPSD_HOST
-    assert options.get("port") == GPSD_PORT
+    # `host`, not `hostname`: the admin UI writes `host`, and the server reads
+    # `hostname ?? host`, so a baked `hostname` would silently override any
+    # later edit made through the UI.
+    assert "hostname" not in sub, "bake `host`; `hostname` shadows UI edits"
+    assert sub["host"] == GPSD_HOST
+    assert sub["port"] == GPSD_PORT
 
 
 def test_gpsd_connection_is_enabled(settings):

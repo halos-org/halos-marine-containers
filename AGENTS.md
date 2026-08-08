@@ -313,21 +313,27 @@ Three of the hook's jobs look like leftovers and are not:
 connection's `pipeElements` by hand. That has two consequences that are invisible
 from the file itself, and `settings.json` cannot carry a comment saying so.
 
-**A hand-authored array does not get what `providers/simple` adds.** Signal K
-assembles connections created through the admin UI via `providers/simple`, and
-that assembly is where upstream puts stream fixes. The gpsd branch there is
-`[new Gpsd(subOptions), new Liner(subOptions)]` — a line splitter, added in
-v2.25.0 because gpsd coalesces a whole NMEA reporting cycle into one TCP write
-and the parser cannot read several sentences as one blob. Our array bypassed that
-branch and so lacked the splitter, which meant the connection produced no
-position at any pinned version; upgrading the server could never have fixed it.
-`tests/test_signalk_settings.py` guards the splitter and its position in the
-pipeline. Anything else `simple` acquires upstream has to be mirrored here by
-hand, and nothing will tell us when that happens.
+**Let `providers/simple` assemble the pipeline; do not spell out `pipeElements`.**
+Signal K builds a gpsd connection as `Gpsd → Liner → nmea0183-signalk`, and that
+assembly is where upstream puts stream fixes. The Liner is load-bearing: gpsd
+writes a whole NMEA reporting cycle in one TCP write, and without a splitter the
+parser gets several sentences as one blob and rejects all of them. It was added
+upstream in v2.25.0.
 
-The same choice costs operator control: `editable: true` is set only for a
-`providers/simple` element, so a hand-authored connection renders in the admin UI
-as a read-only textarea whose only action is Delete.
+This config used to spell the elements out, which bypassed that branch entirely —
+so the connection produced no position at any pinned version, and no server
+upgrade could have supplied the fix. Anything else `simple` gains upstream would
+have had to be mirrored here by hand, with nothing to signal when that happened.
+
+Spelling it out also costs operator control: the server sets `editable: true`
+only for a single `providers/simple` element, so a hand-authored connection
+renders in the admin UI as a read-only textarea whose one action is Delete.
+
+Two details worth keeping: bake `host`, not `hostname` — the admin UI writes
+`host` and the server reads `hostname ?? host`, so a baked `hostname` silently
+overrides any later UI edit. And `tests/test_signalk_settings.py` asserts the
+connection is a single `providers/simple` element, precisely so a future edit
+cannot quietly go back to spelling the pipeline out.
 
 **`default-data/` seeds copy-if-absent.** The generated postinst copies each file
 only `if [ ! -f "$dst_file" ]`, and this app's `prestart.sh` deliberately never
