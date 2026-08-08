@@ -307,6 +307,43 @@ Three of the hook's jobs look like leftovers and are not:
   device. Left root-owned, every app-store plugin install fails EACCES forever --
   and app-store updates are the only thing keeping a baked plugin updatable.
 
+### The baked Signal K connections
+
+`apps/signalk-server/default-data/data/settings.json` spells out the gpsd
+connection's `pipeElements` by hand. That has two consequences that are invisible
+from the file itself, and `settings.json` cannot carry a comment saying so.
+
+**Let `providers/simple` assemble the pipeline; do not spell out `pipeElements`.**
+Signal K builds a gpsd connection as `Gpsd → Liner → nmea0183-signalk`, and that
+assembly is where upstream puts stream fixes. The Liner is load-bearing: gpsd
+writes a whole NMEA reporting cycle in one TCP write, and without a splitter the
+parser gets several sentences as one blob and rejects all of them. It was added
+upstream in v2.25.0.
+
+This config used to spell the elements out, which bypassed that branch entirely —
+so the connection produced no position at any pinned version, and no server
+upgrade could have supplied the fix. Anything else `simple` gains upstream would
+have had to be mirrored here by hand, with nothing to signal when that happened.
+
+Spelling it out also costs operator control: the server sets `editable: true`
+only for a single `providers/simple` element, so a hand-authored connection
+renders in the admin UI as a read-only textarea whose one action is Delete.
+
+Two details worth keeping: bake `host`, not `hostname` — the admin UI writes
+`host` and the server reads `hostname ?? host`, so a baked `hostname` silently
+overrides any later UI edit. And `tests/test_signalk_settings.py` asserts the
+connection is a single `providers/simple` element, precisely so a future edit
+cannot quietly go back to spelling the pipeline out.
+
+**`default-data/` seeds copy-if-absent.** The generated postinst copies each file
+only `if [ ! -f "$dst_file" ]`, and this app's `prestart.sh` deliberately never
+writes `settings.json` (see the symlink-hardening notes above — adding a write
+there is what would expose it). So a change to this file reaches devices with no
+`settings.json` yet, and nothing else. Fielded devices keep whatever they were
+first seeded with, while `apt` reports success and the app version bumps. This is
+the same reach constraint as the baked plugin set below, and a fix here needs the
+same explicit decision: migrate, or accept and say so.
+
 ### Signal K Plugin Set
 
 The curated plugins are baked into the image, not installed at runtime. They live

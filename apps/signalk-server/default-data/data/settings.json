@@ -6,16 +6,17 @@
       "id": "gpsd",
       "pipeElements": [
         {
-          "type": "providers/gpsd",
+          "type": "providers/simple",
           "options": {
-            "hostname": "localhost",
-            "port": 2947,
-            "noDataReceivedTimeout": 30,
-            "reconnectInterval": 15
+            "type": "NMEA0183",
+            "logging": false,
+            "subOptions": {
+              "type": "gpsd",
+              "host": "localhost",
+              "port": 2947,
+              "noDataReceivedTimeout": 30
+            }
           }
-        },
-        {
-          "type": "providers/nmea0183-signalk"
         }
       ],
       "enabled": true
