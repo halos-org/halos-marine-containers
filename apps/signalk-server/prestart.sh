@@ -173,7 +173,9 @@ def create_exclusive(dfd, name, content, mode=0o600):
     except BaseException:
         os.close(fd)
         raise
-    with os.fdopen(fd, "w") as f:  # owns fd from here, including on failure
+    # UTF-8 explicitly: every caller writes JSON, and text mode would otherwise
+    # encode it in the process locale.
+    with os.fdopen(fd, "w", encoding="utf-8") as f:  # owns fd, including on failure
         f.write(content)
 
 
@@ -184,9 +186,11 @@ def create_guarded(dfd, name, content, replace=False, mode=0o600):
     planted, which is the point. Treating that EEXIST as fatal would hand the
     same racer an ExecStartPre failure on demand, so the loss costs a retry.
 
-    `replace` is for a value being regenerated rather than created once: the old
-    file is a stale copy of a secret that no longer opens anything, so it goes.
-    Without it the O_EXCL create would fail against the hook's own last run.
+    `replace` is for a name this hook owns and rewrites rather than creates once:
+    a regenerated secret, whose old file no longer opens anything, and the temp
+    files the atomic writes stage through. Without it the O_EXCL create fails
+    against the hook's own last run -- and `clear_unexpected` will not remove the
+    leftover, because a regular file is exactly the type it wants there.
     """
     for _ in range(ATTEMPTS):
         if not clear_unexpected(dfd, name):
@@ -275,8 +279,13 @@ def configure_influx(sk_fd, token):
         if influxes:
             influxes[0]["token"] = token
 
+        # `replace` because this name is one the hook owns and rewrites: without
+        # it, a .tmp left by an interrupted run survives clear_unexpected (a
+        # regular file is the wanted type) and every later O_EXCL create fails
+        # EEXIST, so the token is never refreshed again on that device.
         tmp = name + ".tmp"
-        if not create_guarded(cfg_fd, tmp, json.dumps(cfg, indent=2) + "\n"):
+        if not create_guarded(cfg_fd, tmp, json.dumps(cfg, indent=2) + "\n",
+                              replace=True):
             warn("cannot write %s; leaving the config alone" % tmp)
             return
         os.replace(tmp, name, src_dir_fd=cfg_fd, dst_dir_fd=cfg_fd)
@@ -288,10 +297,19 @@ def configure_influx(sk_fd, token):
 # REMOVE AFTER 2027-08-01. This repairs one closed population -- devices seeded
 # between v0.3.1+13 and the providers/simple fix -- and every boot after the last
 # of them has been repaired, reimaged or retired is a root write into a
-# container-owned directory bought for nothing. Removing it means deleting
-# migrate_gpsd_liner and its call site, the "the gpsd liner migration" scenarios
-# in tools/test-prestart.sh, and the settings.json paragraphs in AGENTS.md, after
-# which settings.json goes back to being a path this hook never writes.
+# container-owned directory bought for nothing. What goes with it:
+#
+#   * migrate_gpsd_liner and its call site
+#   * the `mode` parameter on create_exclusive and create_guarded, and the
+#     paragraph of create_exclusive's docstring that justifies it -- this is the
+#     only caller that passes anything but the default
+#   * the settings.json.pre-liner hand_over below (the settings.json one above it
+#     predates this and stays -- the postinst creates that file root-owned)
+#   * in tools/test-prestart.sh: the "the gpsd liner migration" scenarios, the
+#     element_types helper and the PRE_LINER_SETTINGS fixture
+#   * the settings.json paragraphs in AGENTS.md
+#
+# After which settings.json goes back to being a path this hook never writes.
 def migrate_gpsd_liner(sk_fd):
     """Splice the missing Liner into a gpsd connection seeded before the fix.
 
@@ -316,29 +334,45 @@ def migrate_gpsd_liner(sk_fd):
 
     This is the only writer of settings.json here, and the reason that path needs
     the same discipline as the secret files above: what makes it dangerous is
-    root writing into a directory uid 1000 owns, not the contents. It runs from
-    ExecStartPre with the container stopped, which is the only point where Signal
-    K -- the file's other writer -- provably is not mid-write.
+    root writing into a directory uid 1000 owns, not the contents.
+
+    ExecStartPre is where this belongs because the unit stops the container before
+    it restarts, so Signal K -- the file's other writer -- is normally not running
+    while this rewrites it. Normally, not always: the compose file sets
+    `restart: unless-stopped` and the unit is only `After=docker.service`, so an
+    unclean shutdown leaves the container in dockerd's restore set and it can be
+    up again before this runs. `docker compose up` then attaches to it instead of
+    recreating it, and the server keeps the settings it read at its own start --
+    so on that boot the repair lands on disk without reaching the running server,
+    and takes effect at the next start that actually recreates the container.
     """
     backup = "settings.json.pre-liner"
+
+    # The backup doubles as the record that this already ran, which is what keeps
+    # a repair from becoming a standing policy: an operator who restores the old
+    # connection deliberately would otherwise have it spliced again on the next
+    # boot, with no way to refuse short of uninstalling the package. Checked
+    # before settings.json is opened, so no early return below owns a descriptor.
+    try:
+        os.lstat(backup, dir_fd=sk_fd)
+        return
+    except FileNotFoundError:
+        pass
+
     try:
         fd = open_regular(sk_fd, "settings.json")
     except FileNotFoundError:
         return  # a fresh install has none until the postinst seeds default-data
 
-    # The backup doubles as the record that this already ran, which is what keeps
-    # a repair from becoming a standing policy: an operator who restores the old
-    # connection deliberately would otherwise have it spliced again on the next
-    # boot, with no way to refuse short of uninstalling the package.
-    try:
-        os.lstat(backup, dir_fd=sk_fd)
-        os.close(fd)
-        return
-    except FileNotFoundError:
-        pass
-
-    with os.fdopen(fd) as f:  # owns fd from here, including on failure
-        mode = stat.S_IMODE(os.fstat(f.fileno()).st_mode)
+    # UTF-8 explicitly: settings.json is UTF-8 by specification, and text mode
+    # otherwise decodes it in the process locale. Under a single-byte locale a
+    # vessel name comes back as two characters that json.dumps then re-escapes,
+    # so the rewrite would corrupt a value it was not asked to touch.
+    with os.fdopen(fd, encoding="utf-8") as f:  # owns fd from here
+        # Permission bits only. uid 1000 owns settings.json and chooses its mode,
+        # and S_IMODE keeps setuid and setgid as well -- root would reproduce them
+        # on a file it creates here and, for the backup, never hands over.
+        mode = stat.S_IMODE(os.fstat(f.fileno()).st_mode) & 0o777
         original = f.read()
 
     settings = json.loads(original)
@@ -364,36 +398,35 @@ def migrate_gpsd_liner(sk_fd):
     if not spliced:
         return
 
-    # The original goes down first: it is what the splice is derived from, and a
-    # migration whose backup failed is one the operator cannot undo.
-    if not create_guarded(sk_fd, backup, original, mode=mode):
-        warn("cannot write %s; leaving the gpsd connection alone" % backup)
+    # Not settings.json.tmp: that is the name the server's own atomic write stages
+    # through, so a leftover there is a root-owned file in its way and its next
+    # save fails EACCES.
+    tmp = "settings.json.halos-tmp"
+    body = json.dumps(settings, indent=2) + "\n"
+    if not create_guarded(sk_fd, tmp, body, replace=True, mode=mode):
+        warn("cannot write %s; leaving the gpsd connection alone" % tmp)
         return
 
-    tmp = "settings.json.tmp"
-    body = json.dumps(settings, indent=2) + "\n"
-    migrated = False
-    try:
-        if create_guarded(sk_fd, tmp, body, replace=True, mode=mode):
-            # renameat replaces the name and never follows it, so a symlink
-            # swapped in after the read above is overwritten rather than written
-            # through.
-            os.replace(tmp, "settings.json", src_dir_fd=sk_fd, dst_dir_fd=sk_fd)
-            migrated = True
-        else:
-            warn("cannot write %s; leaving the gpsd connection alone" % tmp)
-    finally:
-        if not migrated:
-            # A backup with no migration behind it reads as one on the next boot
-            # and would retire the repair without ever having made it.
-            try:
-                os.unlink(backup, dir_fd=sk_fd)
-            except OSError as exc:
-                warn("could not remove %s after a failed migration: %s" % (backup, exc))
+    # renameat replaces the name and never follows it, so a symlink swapped in
+    # after the read above is overwritten rather than written through.
+    os.replace(tmp, "settings.json", src_dir_fd=sk_fd, dst_dir_fd=sk_fd)
+    print("Added the missing providers/liner to the gpsd connection")
 
-    if migrated:
-        print("Added the missing providers/liner to the gpsd connection")
+    # The record of the repair goes down after the repair, never before. Anything
+    # that stops the hook above this line leaves settings.json untouched and no
+    # backup, so the next boot tries again; stopping below it costs the undo copy
+    # and not the repair. Ordering it the other way makes a half-written backup
+    # read as a completed migration and retires the device for good.
+    # Caught here rather than at the call site: by this point the repair has
+    # landed, and the call site's handler would report it as not migrated.
+    try:
+        kept = create_guarded(sk_fd, backup, original, mode=mode)
+    except OSError as exc:
+        kept = False
+        warn("could not keep a copy of the previous connection: %s" % exc)
+    if kept:
         print("The connection as it was is kept at %s/%s" % (SK_DATA, backup))
+        print("Leave that file in place: it also stops this running again")
 
 
 sk_fd = open_dir(SK_DATA)
@@ -508,6 +541,11 @@ if [ -f "${SECURITY_FILE}" ]; then
 fi
 if [ -f "${SIGNALK_DATA}/settings.json" ]; then
     hand_over "${SIGNALK_DATA}/settings.json"
+fi
+# The migration writes this one as root, and it is the file the operator is told
+# to copy back. Left root-owned, that instruction needs a shell on the host.
+if [ -f "${SIGNALK_DATA}/settings.json.pre-liner" ]; then
+    hand_over "${SIGNALK_DATA}/settings.json.pre-liner"
 fi
 
 # The app store installs plugin updates into this tree as uid 1000, and that is

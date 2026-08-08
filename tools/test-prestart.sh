@@ -3,7 +3,8 @@
 #
 # The hook writes three files holding secrets. Their modes are a property of the
 # filesystem after it runs, not of the script's text, so this runs it against a
-# sandbox: no root, no container, no InfluxDB.
+# sandbox: no container, no InfluxDB, and deliberately not as root -- see the
+# refusal below.
 #
 # Modes are asserted against the real filesystem. Ownership is asserted against
 # the chown stub's call log -- the run is unprivileged, so no uid here can ever
@@ -18,6 +19,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="${REPO_ROOT}/apps/signalk-server/prestart.sh"
 REAL_PYTHON3="$(command -v python3)"
 export REAL_PYTHON3
+
+# Several scenarios stage their condition with chmod 555, which root ignores.
+# Run as root the suite is neither green nor usefully red: two of them fail with
+# nothing pointing at the environment, and one passes without exercising the
+# failure it names. Refuse rather than report either.
+if [ "$(id -u)" = "0" ]; then
+    echo "tools/test-prestart.sh must not run as root: the scenarios staged with" >&2
+    echo "chmod 555 cannot be staged against a caller that ignores file modes." >&2
+    exit 1
+fi
 pass=0
 fail=0
 
@@ -35,12 +46,37 @@ mode() {
 # The pipeline as the file spells it, in order. Asserting on the whole sequence
 # rather than grepping for "providers/liner": a liner spliced at the wrong index
 # leaves the grep green and the connection just as broken.
-element_types() {  # $1 = a settings.json
+#
+# Failures print ERROR rather than going to /dev/null. Swallowing them makes a
+# missing or unparseable file indistinguishable from an empty pipeline, so an
+# expectation that was ever empty would pass against a hook that deleted the file.
+element_types() {  # $1 = a settings.json, $2 = index into pipedProviders (default 0)
     "${REAL_PYTHON3}" -c '
 import json, sys
-s = json.load(open(sys.argv[1]))
-print(" ".join(e.get("type", "?") for e in s["pipedProviders"][0]["pipeElements"]))
-' "$1" 2>/dev/null
+try:
+    settings = json.load(open(sys.argv[1]))
+    provider = settings["pipedProviders"][int(sys.argv[2])]
+    print(" ".join(e.get("type", "?") for e in provider["pipeElements"]))
+except Exception as exc:
+    print("ERROR: %s" % exc)
+' "$1" "${2:-0}"
+}
+
+# The migration round-trips the whole document through json.loads/json.dumps, and
+# the element-type assertions above only look at one provider's pipeline. A
+# rewrite that dropped the vessel uuid, the mmsi or the interfaces settings would
+# pass every one of them, so this compares everything else against the copy the
+# hook kept: remove the liners from the migrated file and it must equal it.
+migration_changed_nothing_else() {  # $1 = migrated settings.json, $2 = the backup
+    "${REAL_PYTHON3}" -c '
+import json, sys
+migrated = json.load(open(sys.argv[1]))
+before = json.load(open(sys.argv[2]))
+for provider in migrated.get("pipedProviders", []):
+    provider["pipeElements"] = [e for e in provider["pipeElements"]
+                                if e.get("type") != "providers/liner"]
+sys.exit(0 if migrated == before else 1)
+' "$1" "$2"
 }
 
 # What every device seeded from v0.3.1+13 onward carries: gpsd piped straight
@@ -172,12 +208,13 @@ chowned() {  # $1 = path the hook must have handed to the container uid
 # anything planted from bcrypt lands *before* the clear and is simply removed --
 # which is how the two racer scenarios silently became no-ops. Wrapping os.open
 # is inside the window by construction, and stays there if the order changes.
-inject_before_open() {  # $1 = True for the create, False for the read; $2 = sh
+inject_before_open() {  # $1 = True for the create, False for the read; $2 = sh;
+                        # $3 = the name to fire on (default security.json)
     cat > "${SANDBOX}/pylib/sitecustomize.py" <<SHIM
 import os, subprocess
 _real, _fired = os.open, []
 def _open(path, flags, mode=0o777, *, dir_fd=None):
-    if path == "security.json" and not _fired and bool(flags & os.O_CREAT) is ${1}:
+    if path == "${3:-security.json}" and not _fired and bool(flags & os.O_CREAT) is ${1}:
         _fired.append(True)
         subprocess.run(["sh", "-c", r"""${2}"""])
     return _real(path, flags, mode, dir_fd=dir_fd)
@@ -683,18 +720,44 @@ check "  the liner lands between the two elements" \
     "$(element_types "${SK}/settings.json")" \
     "providers/gpsd providers/liner providers/nmea0183-signalk"
 check "  and the file keeps its mode" "$(mode "${SK}/settings.json")" "644"
-grep -q reconnectInterval "${SK}/settings.json" &&
-    ok "  the gpsd options are carried over" ||
-    bad "  the gpsd options are carried over" "$(cat "${SK}/settings.json")"
+# The whole document, not just the pipeline: the rewrite serialises every key in
+# the file, and a fielded settings.json carries the vessel uuid and mmsi, the
+# interfaces settings and the ssl flag alongside pipedProviders.
+migration_changed_nothing_else "${SK}/settings.json" "${SK}/settings.json.pre-liner" &&
+    ok "  and nothing else in the document changes" ||
+    bad "  and nothing else in the document changes" "$(cat "${SK}/settings.json")"
 check "  the original is kept alongside" \
     "$(element_types "${SK}/settings.json.pre-liner")" \
     "providers/gpsd providers/nmea0183-signalk"
+# The backup is what the operator is told to copy back. Landed 0600 it is
+# unreadable to the uid that would restore it, and the instruction is dead.
+check "  at the mode the original had" "$(mode "${SK}/settings.json.pre-liner")" "644"
 # Root replaced a file the container owns and writes. Left root-owned, every
 # later change made in the admin UI fails and the connection cannot be edited or
 # deleted -- a repair that costs the operator the tool for repairing it.
 chowned "${SK}/settings.json" &&
     ok "  and the rewritten file is handed back to the container" ||
     bad "  and the rewritten file is handed back to the container" "$(cat "${STUB_LOG}")"
+chowned "${SK}/settings.json.pre-liner" &&
+    ok "  as is the copy it kept" ||
+    bad "  as is the copy it kept" "$(cat "${STUB_LOG}")"
+teardown
+
+# A device with a real NMEA connection alongside the gpsd one. The splice walks
+# every provider, so the match cannot be pinned by a fixture that only ever has
+# one -- narrowing the loop to pipedProviders[0] would pass every scenario above.
+setup
+printf '%s\n' '{"pipedProviders":[
+  {"id":"n2k","pipeElements":[{"type":"providers/simple","options":{"type":"NMEA2000"}}]},
+  {"id":"gpsd","pipeElements":[
+    {"type":"providers/gpsd","options":{"hostname":"localhost"}},
+    {"type":"providers/nmea0183-signalk"}]}]}' > "${SK}/settings.json"
+check "a gpsd connection that is not the first is migrated" "$(run_hook)" "0"
+check "  the other connection is untouched" \
+    "$(element_types "${SK}/settings.json" 0)" "providers/simple"
+check "  and the gpsd one gets the liner" \
+    "$(element_types "${SK}/settings.json" 1)" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
 teardown
 
 # The hook runs on every boot, so the predicate has to stop matching what it
@@ -757,29 +820,61 @@ check "  and its mode" "$(mode "${CANARY}")" "644"
 teardown
 
 # The rewrite lands through a sibling temp file, and uid 1000 owns the directory
-# -- so .tmp is a name root writes that no path guard covers unless the create
+# -- so that name is one root writes that no path guard covers unless the create
 # itself refuses to follow it.
 setup
 CANARY="${SANDBOX}/outside-the-data-root"
 printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
 printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
-ln -s "${CANARY}" "${SK}/settings.json.tmp"
-check "a symlinked .tmp does not redirect the migration" "$(run_hook)" "0"
+ln -s "${CANARY}" "${SK}/settings.json.halos-tmp"
+check "a symlinked temp path does not redirect the migration" "$(run_hook)" "0"
 check "  the link target is not written through" "$(cat "${CANARY}")" "original"
 check "  and the connection is still migrated" \
     "$(element_types "${SK}/settings.json")" \
     "providers/gpsd providers/liner providers/nmea0183-signalk"
 teardown
 
-# The backup is the second name root writes here, and it carries the whole
-# pre-migration file -- a redirected copy overwrites the target with it.
+# settings.json.tmp belongs to the server: atomicWriteFile stages every one of
+# its own saves through it. A root-owned file left at that name fails the
+# container's next write with EACCES, so the hook must not use it at all.
+setup
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+printf 'the servers own staging file\n' > "${SK}/settings.json.tmp"
+check "the server's own .tmp name is left alone" "$(run_hook)" "0"
+check "  its contents are untouched" "$(cat "${SK}/settings.json.tmp")" \
+    "the servers own staging file"
+[ ! -e "${SK}/settings.json.halos-tmp" ] &&
+    ok "  and the hook's staging file does not survive" ||
+    bad "  and the hook's staging file does not survive" "halos-tmp was left behind"
+teardown
+
+# The backup carries the whole pre-migration file, so a redirected copy
+# overwrites the link target with it. Planted inside the window rather than
+# before the run: the sentinel check lstats this name first, so a symlink staged
+# up front is a hit and the hook returns before the create is ever reached --
+# which is the shape this scenario had until review caught it passing vacuously.
 setup
 CANARY="${SANDBOX}/outside-the-data-root"
 printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
 printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
-ln -s "${CANARY}" "${SK}/settings.json.pre-liner"
-check "a symlinked backup path does not redirect the copy" "$(run_hook)" "0"
+inject_before_open True "ln -sfn '${CANARY}' '${SK}/settings.json.pre-liner'" \
+    settings.json.pre-liner
+check "a backup path planted after the clear does not redirect the copy" "$(run_hook)" "0"
 check "  the link target is not written through" "$(cat "${CANARY}")" "original"
+check "  and the repair still stands" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+teardown
+
+# A symlink already at that name before the run is the refusal path, not the
+# write path: the sentinel means "this already ran", whatever the file is.
+setup
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+ln -s /nonexistent "${SK}/settings.json.pre-liner"
+check "anything at the backup name refuses the repair" "$(run_hook)" "0"
+check "  the connection is left as it was" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/nmea0183-signalk"
 teardown
 
 # Restoring the backup is how an operator refuses the repair. Without it standing
@@ -795,9 +890,24 @@ check "  the restore survives the next boot" \
     "providers/gpsd providers/nmea0183-signalk"
 teardown
 
-# The other half of that: the backup only means "already migrated" if a run that
-# wrote it and then failed takes it away again. Left behind, one failed boot
-# retires the repair on that device without ever having made it.
+# Restoring with mv takes the record away with the copy, so the splice runs
+# again. Pinned rather than fixed: the hook prints that the file has to stay, and
+# a record separate from the backup would be a second file on every device for a
+# gesture the message already covers.
+setup
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+run_hook > /dev/null
+mv "${SK}/settings.json.pre-liner" "${SK}/settings.json"
+check "restoring with mv re-arms the splice" "$(run_hook)" "0"
+check "  the connection is migrated again" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+teardown
+
+# The repair goes down before the record of it, so a failure at the rename leaves
+# settings.json untouched and nothing claiming the migration ran. Ordered the
+# other way, this boot would retire the device: the next one reads the backup as
+# a completed migration and never looks at the connection again.
 setup
 printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
 cat > "${SANDBOX}/pylib/sitecustomize.py" <<'SHIM'
@@ -814,11 +924,36 @@ check "  the connection is left as it was" \
     "$(element_types "${SK}/settings.json")" \
     "providers/gpsd providers/nmea0183-signalk"
 [ ! -e "${SK}/settings.json.pre-liner" ] &&
-    ok "  and no backup is left to retire the retry" ||
-    bad "  and no backup is left to retire the retry" "a backup survived the failure"
+    ok "  and nothing is left claiming it ran" ||
+    bad "  and nothing is left claiming it ran" "a backup survived the failure"
 rm -f "${SANDBOX}/pylib/sitecustomize.py"
 check "  so a later boot still migrates it" "$(run_hook)" "0"
 check "  with the liner where it belongs" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+teardown
+
+# The other end of that order: the repair has landed and only the copy fails. The
+# device is fixed, so the next boot must not splice a second liner -- the file no
+# longer matching is what carries idempotency here, not the record.
+setup
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+cat > "${SANDBOX}/pylib/sitecustomize.py" <<'SHIM'
+import errno, os
+_real = os.open
+def _open(path, flags, mode=0o777, *, dir_fd=None):
+    if path == "settings.json.pre-liner" and (flags & os.O_CREAT):
+        raise OSError(errno.ENOSPC, "No space left on device")
+    return _real(path, flags, mode, dir_fd=dir_fd)
+os.open = _open
+SHIM
+check "a failed backup does not cost the repair" "$(run_hook)" "0"
+check "  the connection is migrated" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+rm -f "${SANDBOX}/pylib/sitecustomize.py"
+check "  and the next boot adds no second liner" "$(run_hook)" "0"
+check "  the pipeline still has exactly one" \
     "$(element_types "${SK}/settings.json")" \
     "providers/gpsd providers/liner providers/nmea0183-signalk"
 teardown

@@ -82,12 +82,12 @@ function test {
   #@ Run test suite in Docker container
   #@ Category: Testing
   echo "🧪 Running tests..."
-  # pytest runs as nobody, not as root. tools/test-prestart.sh asserts that the
-  # hook refuses to start when it cannot make security.json safe, and that a data
-  # directory it cannot write leaves the gpsd connection alone -- both staged with
-  # chmod 555, which root ignores. As root those scenarios pass silently against a
-  # hook that did the opposite. CI runs unprivileged on the runner and never saw
-  # this; only ./run test did.
+  # pytest runs as nobody, not as root. Several tools/test-prestart.sh scenarios
+  # stage an unwritable path with chmod 555, which root ignores, so as root they
+  # assert against a condition that never happened: two fail and one passes
+  # without exercising anything. The harness now refuses a root run outright, so
+  # without this the whole suite stops here. CI runs unprivileged on the runner
+  # and never hit it; only ./run test did.
   docker run --rm -v "$(pwd):/workspace" -w /workspace python:3.11-slim \
     bash -c "pip install -q -r tests/requirements.txt \
       && runuser -u nobody -- python -m pytest tests/ -v"

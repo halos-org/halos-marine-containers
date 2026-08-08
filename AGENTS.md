@@ -227,10 +227,13 @@ pulls and boots the InfluxDB image.
 ### Signal K Prestart Hook
 
 `apps/signalk-server/prestart.sh` has a bash harness that stubs chown, so it
-needs no Docker, no network and no root. bcrypt is not stubbed -- the python
-block that imports it is the thing under test -- so `python3-bcrypt` has to be
-installed to run this. Unlike the InfluxDB harness it runs in CI, via
-`tests/test_signalk_prestart.py`:
+needs no Docker and no network. It must **not** run as root, and refuses to:
+several scenarios stage an unwritable path with `chmod 555`, which root ignores,
+so a root run reports failures that are about the caller rather than the hook —
+and one scenario passes without exercising the failure it names. bcrypt is not
+stubbed -- the python block that imports it is the thing under test -- so
+`python3-bcrypt` has to be installed to run this. Unlike the InfluxDB harness it
+runs in CI, via `tests/test_signalk_prestart.py`:
 
 ```bash
 ./tools/test-prestart.sh
@@ -295,10 +298,11 @@ Three of the hook's jobs look like leftovers and are not:
   would give away the one credential meant to outlive a compromise.
 
   Paths that are safe today for a *different* reason, and would silently become
-  the same bug if that changed: `oidc-secret` and `$RUNTIME_ENV` are safe only
-  because their parent is root-owned and outside the bind mount; `package.json`
-  only because it is `chown -h`'d and never written. Mount
-  `${CONTAINER_DATA_ROOT}` into a container and they are exposed.
+  the same bug if that changed, each with the action that would expose it:
+  `oidc-secret` and `$RUNTIME_ENV` are safe only because their parent is
+  root-owned and outside the bind mount, so mounting `${CONTAINER_DATA_ROOT}`
+  into a container exposes them; `package.json` only because nothing writes it,
+  so adding a write does.
 
   `settings.json` was in that list until the gpsd liner migration below gave it a
   writer, and it is the case to read before adding another one. The file holds
@@ -352,7 +356,7 @@ needs the same explicit decision: migrate, or accept and say so.
 **The missing liner is migrated; nothing else is.** `prestart.sh` splices a
 `providers/liner` into a connection whose `pipeElements` are `providers/gpsd`
 immediately followed by `providers/nmea0183-signalk`, keeping the file as it was
-at `settings.json.pre-liner`. Three things decide the shape of that, and a wider
+at `settings.json.pre-liner`. Four things decide the shape of that, and a wider
 migration gets each of them wrong:
 
 - **The adjacency is also the unmodified check.** The server marks only a single
@@ -367,12 +371,26 @@ migration gets each of them wrong:
 - **Failure warns; it never refuses to start.** A device left on the old
   connection shows no position, which is where it already was. A device whose
   `ExecStartPre` aborts has no navigation server at all.
+- **The record of the repair is written after the repair, never before.** The
+  backup doubles as that record, and writing it first is what makes a partial
+  write or an interrupted boot fatal: the next boot reads a half-written file as
+  a completed migration and never looks at the connection again. In this order a
+  failure anywhere before the rename leaves `settings.json` untouched and nothing
+  claiming the migration ran, so the next boot retries; a failure after it costs
+  the undo copy and not the repair. Idempotency does not depend on the record —
+  the migrated file no longer matches the predicate.
 
-It runs from `ExecStartPre` with the container stopped, which is the only point
-where Signal K — the file's other writer — provably is not mid-write. That is why
-it lives here rather than in the postinst, which runs while the container may
-still be up, and which the generator owns end to end: there is no app-level hook
-in it.
+It lives in `ExecStartPre` rather than in the postinst because the unit stops the
+container before restarting it, so Signal K — the file's other writer — is
+normally not running while this rewrites the file. The postinst runs while the
+container may still be up, and the generator owns it end to end: there is no
+app-level hook in it. "Normally" is the honest word: `restart: unless-stopped` in
+the compose file plus a bare `After=docker.service` on the unit means an unclean
+shutdown leaves the container in dockerd's restore set, and it can be up again
+before the hook runs. `docker compose up` then attaches instead of recreating, so
+the server keeps the settings it read at its own start and the repair reaches
+disk without reaching the running server. It takes effect at the next start that
+actually recreates the container.
 
 **It has an expiry.** The population it repairs is closed, so the hook carries a
 `REMOVE AFTER 2027-08-01` marker naming everything that goes with it. Past that

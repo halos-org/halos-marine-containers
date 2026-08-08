@@ -154,6 +154,26 @@ def test_prestart_chown_is_scoped():
         )
 
 
+def test_prestart_masks_an_inherited_mode_to_permission_bits():
+    """The migration copies settings.json's mode onto the files it creates, and
+    uid 1000 owns settings.json -- so the container chooses that mode.
+
+    `stat.S_IMODE` is `mode & 0o7777`, which keeps setuid and setgid. Root then
+    reproduces them on settings.json.pre-liner, a file it creates and never hands
+    over, so nothing clears them afterwards. Guarded here rather than in
+    tools/test-prestart.sh because that harness cannot see it: it refuses to run
+    as root, and the kernel strips those bits for any writer without CAP_FSETID.
+    """
+    prestart = hook_code()
+
+    calls = [line for line in prestart.splitlines() if "stat.S_IMODE(" in line]
+    assert calls, "no S_IMODE call parsed -- the guard would pass vacuously"
+    for line in calls:
+        assert "& 0o777" in line, (
+            f"an inherited mode reaches a root create unmasked: {line.strip()}"
+        )
+
+
 def test_prestart_does_not_gate_influxdb_on_the_data_volume():
     """The plugin lives in the image, so the data volume cannot attest to it.
 
