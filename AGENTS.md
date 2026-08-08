@@ -296,10 +296,17 @@ Three of the hook's jobs look like leftovers and are not:
 
   Paths that are safe today for a *different* reason, and would silently become
   the same bug if that changed: `oidc-secret` and `$RUNTIME_ENV` are safe only
-  because their parent is root-owned and outside the bind mount; `settings.json`
-  and `package.json` only because they are `chown -h`'d and never written. Mount
-  `${CONTAINER_DATA_ROOT}` into a container, or add a `cat >` to `settings.json`,
-  and they are exposed.
+  because their parent is root-owned and outside the bind mount; `package.json`
+  only because it is `chown -h`'d and never written. Mount
+  `${CONTAINER_DATA_ROOT}` into a container and they are exposed.
+
+  `settings.json` was in that list until the gpsd liner migration below gave it a
+  writer, and it is the case to read before adding another one. The file holds
+  nothing secret, so what makes it dangerous is only that root writes into a
+  directory uid 1000 owns — the same property, arrived at without a secret to
+  point to. It goes through the same descriptor-relative `O_EXCL` create and
+  `renameat` as everything else here, and the temp and backup names it writes are
+  covered by those creates rather than by a guard that lists them.
 
 - **`node_modules` and `package.json` are handed to uid 1000 on every start.**
   `signalk-halpi`'s postinst creates both as root when it registers itself as a
@@ -309,9 +316,9 @@ Three of the hook's jobs look like leftovers and are not:
 
 ### The baked Signal K connections
 
-`apps/signalk-server/default-data/data/settings.json` spells out the gpsd
-connection's `pipeElements` by hand. That has two consequences that are invisible
-from the file itself, and `settings.json` cannot carry a comment saying so.
+`apps/signalk-server/default-data/data/settings.json` used to spell out the gpsd
+connection's `pipeElements` by hand. The rules that replaced it are invisible from
+the file itself, and `settings.json` cannot carry a comment saying so.
 
 **Let `providers/simple` assemble the pipeline; do not spell out `pipeElements`.**
 Signal K builds a gpsd connection as `Gpsd → Liner → nmea0183-signalk`, and that
@@ -336,13 +343,42 @@ connection is a single `providers/simple` element, precisely so a future edit
 cannot quietly go back to spelling the pipeline out.
 
 **`default-data/` seeds copy-if-absent.** The generated postinst copies each file
-only `if [ ! -f "$dst_file" ]`, and this app's `prestart.sh` deliberately never
-writes `settings.json` (see the symlink-hardening notes above — adding a write
-there is what would expose it). So a change to this file reaches devices with no
+only `if [ ! -f "$dst_file" ]`, so a change to this file reaches devices with no
 `settings.json` yet, and nothing else. Fielded devices keep whatever they were
 first seeded with, while `apt` reports success and the app version bumps. This is
-the same reach constraint as the baked plugin set below, and a fix here needs the
-same explicit decision: migrate, or accept and say so.
+the same reach constraint as the baked plugin set below, and every change here
+needs the same explicit decision: migrate, or accept and say so.
+
+**The missing liner is migrated; nothing else is.** `prestart.sh` splices a
+`providers/liner` into a connection whose `pipeElements` are `providers/gpsd`
+immediately followed by `providers/nmea0183-signalk`, keeping the file as it was
+at `settings.json.pre-liner`. Three things decide the shape of that, and a wider
+migration gets each of them wrong:
+
+- **The adjacency is also the unmodified check.** The server marks only a single
+  `providers/simple` element editable, so the hand-authored connection was
+  read-only in the admin UI — no device reached this shape by being configured.
+  A connection recreated through the UI is one `providers/simple` element, and a
+  hand-repaired one already has three. Neither matches, and both are left alone.
+- **Repairing the defect is not the same as adopting the current shape.**
+  Rewriting the connection to `providers/simple` would discard a hand-edited host
+  or port and change its identity in the admin UI. The liner is what we shipped
+  wrong; the rest is only what we would write today.
+- **Failure warns; it never refuses to start.** A device left on the old
+  connection shows no position, which is where it already was. A device whose
+  `ExecStartPre` aborts has no navigation server at all.
+
+It runs from `ExecStartPre` with the container stopped, which is the only point
+where Signal K — the file's other writer — provably is not mid-write. That is why
+it lives here rather than in the postinst, which runs while the container may
+still be up, and which the generator owns end to end: there is no app-level hook
+in it.
+
+**It has an expiry.** The population it repairs is closed, so the hook carries a
+`REMOVE AFTER 2027-08-01` marker naming everything that goes with it. Past that
+date the migration is a root write into a container-owned directory that can no
+longer find anything to repair — open an issue to take it out rather than
+renewing it by default.
 
 ### Signal K Plugin Set
 

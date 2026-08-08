@@ -32,6 +32,46 @@ mode() {
         'import os, sys; print(format(os.stat(sys.argv[1]).st_mode & 0o777, "03o"))' "$1"
 }
 
+# The pipeline as the file spells it, in order. Asserting on the whole sequence
+# rather than grepping for "providers/liner": a liner spliced at the wrong index
+# leaves the grep green and the connection just as broken.
+element_types() {  # $1 = a settings.json
+    "${REAL_PYTHON3}" -c '
+import json, sys
+s = json.load(open(sys.argv[1]))
+print(" ".join(e.get("type", "?") for e in s["pipedProviders"][0]["pipeElements"]))
+' "$1" 2>/dev/null
+}
+
+# What every device seeded from v0.3.1+13 onward carries: gpsd piped straight
+# into the parser. gpsd writes a whole NMEA reporting cycle in one TCP write, so
+# with no splitter between them the parser rejects every burst and no position
+# ever reaches Signal K.
+PRE_LINER_SETTINGS='{
+  "ssl": false,
+  "trustProxy": true,
+  "pipedProviders": [
+    {
+      "id": "gpsd",
+      "pipeElements": [
+        {
+          "type": "providers/gpsd",
+          "options": {
+            "hostname": "localhost",
+            "port": 2947,
+            "noDataReceivedTimeout": 30,
+            "reconnectInterval": 15
+          }
+        },
+        {
+          "type": "providers/nmea0183-signalk"
+        }
+      ],
+      "enabled": true
+    }
+  ]
+}'
+
 setup() {
     SANDBOX="$(mktemp -d)"
     DATA="${SANDBOX}/data"
@@ -627,6 +667,187 @@ run_hook > /dev/null
 chowned "${SK}/settings.json" &&
     ok "settings.json is handed over" ||
     bad "settings.json is handed over" "$(cat "${STUB_LOG}")"
+teardown
+
+# --- the gpsd liner migration ------------------------------------------------
+#
+# default-data is copy-if-absent, so correcting the baked connection reached new
+# installs only. These devices are already shipped, and nothing else in the
+# package ever rewrites the file they were seeded with.
+
+setup
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+chmod 644 "${SK}/settings.json"
+check "a pre-liner gpsd connection is migrated" "$(run_hook)" "0"
+check "  the liner lands between the two elements" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+check "  and the file keeps its mode" "$(mode "${SK}/settings.json")" "644"
+grep -q reconnectInterval "${SK}/settings.json" &&
+    ok "  the gpsd options are carried over" ||
+    bad "  the gpsd options are carried over" "$(cat "${SK}/settings.json")"
+check "  the original is kept alongside" \
+    "$(element_types "${SK}/settings.json.pre-liner")" \
+    "providers/gpsd providers/nmea0183-signalk"
+# Root replaced a file the container owns and writes. Left root-owned, every
+# later change made in the admin UI fails and the connection cannot be edited or
+# deleted -- a repair that costs the operator the tool for repairing it.
+chowned "${SK}/settings.json" &&
+    ok "  and the rewritten file is handed back to the container" ||
+    bad "  and the rewritten file is handed back to the container" "$(cat "${STUB_LOG}")"
+teardown
+
+# The hook runs on every boot, so the predicate has to stop matching what it
+# produced. A second liner is not cosmetic: it splits already-split lines and the
+# connection stays broken, now with no trace of what did it.
+setup
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+run_hook > /dev/null
+MIGRATED="$(cat "${SK}/settings.json")"
+check "an already-migrated connection is left alone" "$(run_hook)" "0"
+check "  byte for byte" "$(cat "${SK}/settings.json")" "${MIGRATED}"
+check "  with no second liner" "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+teardown
+
+# What the admin UI writes, and what a new install now seeds. The server
+# assembles the pipeline from this, so there is nothing to splice -- and a device
+# that was repaired by deleting and recreating the connection looks like this.
+setup
+cp "${REPO_ROOT}/apps/signalk-server/default-data/data/settings.json" "${SK}/settings.json"
+BEFORE="$(cat "${SK}/settings.json")"
+check "a providers/simple connection is left alone" "$(run_hook)" "0"
+check "  unchanged" "$(cat "${SK}/settings.json")" "${BEFORE}"
+[ ! -e "${SK}/settings.json.pre-liner" ] &&
+    ok "  and nothing is backed up" ||
+    bad "  and nothing is backed up" "a backup was written"
+teardown
+
+# The adjacency is the whole predicate, and that is what makes it also the
+# unmodified check. gpsd piped into anything else is someone's own pipeline.
+setup
+printf '%s\n' '{"pipedProviders":[{"id":"gpsd","pipeElements":[
+  {"type":"providers/gpsd"},{"type":"providers/log"},
+  {"type":"providers/nmea0183-signalk"}]}]}' > "${SK}/settings.json"
+BEFORE="$(cat "${SK}/settings.json")"
+check "a pipeline we did not ship is left alone" "$(run_hook)" "0"
+check "  unchanged" "$(cat "${SK}/settings.json")" "${BEFORE}"
+teardown
+
+# A fresh install has no settings.json until the postinst seeds default-data.
+# Writing one here would bake a shape from this hook that default-data owns.
+setup
+check "no settings.json is invented when none exists" "$(run_hook)" "0"
+[ ! -e "${SK}/settings.json" ] &&
+    ok "  none is written" || bad "  none is written" "$(cat "${SK}/settings.json")"
+teardown
+
+# This is the first thing in the hook that ever writes settings.json, so the swap
+# the secret files are hardened against now reaches this path too. The link
+# target is a valid pre-liner config on purpose: pointed at plain text, a hook
+# that followed the link would fail on the parse and look guarded.
+setup
+CANARY="${SANDBOX}/outside-the-data-root"
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${CANARY}"; chmod 644 "${CANARY}"
+ln -s "${CANARY}" "${SK}/settings.json"
+check "a symlinked settings.json is not migrated through the link" "$(run_hook)" "0"
+check "  the link target keeps its two elements" \
+    "$(element_types "${CANARY}")" "providers/gpsd providers/nmea0183-signalk"
+check "  and its mode" "$(mode "${CANARY}")" "644"
+teardown
+
+# The rewrite lands through a sibling temp file, and uid 1000 owns the directory
+# -- so .tmp is a name root writes that no path guard covers unless the create
+# itself refuses to follow it.
+setup
+CANARY="${SANDBOX}/outside-the-data-root"
+printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+ln -s "${CANARY}" "${SK}/settings.json.tmp"
+check "a symlinked .tmp does not redirect the migration" "$(run_hook)" "0"
+check "  the link target is not written through" "$(cat "${CANARY}")" "original"
+check "  and the connection is still migrated" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+teardown
+
+# The backup is the second name root writes here, and it carries the whole
+# pre-migration file -- a redirected copy overwrites the target with it.
+setup
+CANARY="${SANDBOX}/outside-the-data-root"
+printf 'original\n' > "${CANARY}"; chmod 644 "${CANARY}"
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+ln -s "${CANARY}" "${SK}/settings.json.pre-liner"
+check "a symlinked backup path does not redirect the copy" "$(run_hook)" "0"
+check "  the link target is not written through" "$(cat "${CANARY}")" "original"
+teardown
+
+# Restoring the backup is how an operator refuses the repair. Without it standing
+# in for "this already ran", the next boot splices the connection again and there
+# is no way to say no short of uninstalling the package.
+setup
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+run_hook > /dev/null
+cp "${SK}/settings.json.pre-liner" "${SK}/settings.json"
+check "a restored pre-liner connection is left alone" "$(run_hook)" "0"
+check "  the restore survives the next boot" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/nmea0183-signalk"
+teardown
+
+# The other half of that: the backup only means "already migrated" if a run that
+# wrote it and then failed takes it away again. Left behind, one failed boot
+# retires the repair on that device without ever having made it.
+setup
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+cat > "${SANDBOX}/pylib/sitecustomize.py" <<'SHIM'
+import errno, os
+_real = os.replace
+def _replace(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
+    if dst == "settings.json":
+        raise OSError(errno.EIO, "Input/output error")
+    return _real(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
+os.replace = _replace
+SHIM
+check "a migration that fails at the rename does not block the start" "$(run_hook)" "0"
+check "  the connection is left as it was" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/nmea0183-signalk"
+[ ! -e "${SK}/settings.json.pre-liner" ] &&
+    ok "  and no backup is left to retire the retry" ||
+    bad "  and no backup is left to retire the retry" "a backup survived the failure"
+rm -f "${SANDBOX}/pylib/sitecustomize.py"
+check "  so a later boot still migrates it" "$(run_hook)" "0"
+check "  with the liner where it belongs" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+teardown
+
+# A settings.json that will not parse is one Signal K cannot start from either.
+# Rewriting it from a guess is worse than leaving it for the operator.
+setup
+printf 'not json at all\n' > "${SK}/settings.json"
+check "an unparseable settings.json does not block the start" "$(run_hook)" "0"
+check "  and is left as it was" "$(cat "${SK}/settings.json")" "not json at all"
+grep -q "gpsd connection not migrated" "${SANDBOX}/out" &&
+    ok "  and the reason is logged" ||
+    bad "  and the reason is logged" "$(cat "${SANDBOX}/out")"
+teardown
+
+# The migration is a repair, not a precondition. A device that keeps the old
+# connection shows no position, which is where it already was; a device whose
+# ExecStartPre aborts has no navigation server at all. The licence to refuse to
+# start belongs to security.json alone.
+setup
+printf '{"users":[]}\n' > "${SK}/security.json"
+printf '%s\n' "${PRE_LINER_SETTINGS}" > "${SK}/settings.json"
+chmod 555 "${SK}"
+STATUS="$(run_hook)"
+chmod 755 "${SK}"
+check "an unwritable data directory does not block the start" "${STATUS}" "0"
+check "  and the connection is left as it was" \
+    "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/nmea0183-signalk"
 teardown
 
 # Every other scenario asserts the hook exits 0, so nothing pins the deliberate

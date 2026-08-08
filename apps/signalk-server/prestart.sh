@@ -151,21 +151,25 @@ def clear_unexpected(dfd, name, want_dir=False):
     return True
 
 
-def create_exclusive(dfd, name, content):
+def create_exclusive(dfd, name, content, mode=0o600):
     """Create and fill `name`, refusing to follow anything.
 
     O_EXCL|O_NOFOLLOW is a real kernel exclusive create. Bash's `noclobber` is
     not equivalent: it stats first and only adds O_EXCL when that stat fails, so
     a symlink to a FIFO or a device is followed.
+
+    The default is the secret-file mode. It is a parameter because settings.json
+    holds no secret and is read and written by the container: tightening it to
+    0600 as a side effect of repairing it would be a second, silent change.
     """
     fd = os.open(
         name,
         os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-        0o600,
+        mode,
         dir_fd=dfd,
     )
     try:
-        os.fchmod(fd, 0o600)  # explicit: the mode above is masked by umask
+        os.fchmod(fd, mode)  # explicit: the mode above is masked by umask
     except BaseException:
         os.close(fd)
         raise
@@ -173,7 +177,7 @@ def create_exclusive(dfd, name, content):
         f.write(content)
 
 
-def create_guarded(dfd, name, content, replace=False):
+def create_guarded(dfd, name, content, replace=False, mode=0o600):
     """Clear the name and create it, conceding only after losing repeatedly.
 
     O_EXCL turns a lost race into EEXIST instead of a write through whatever was
@@ -196,7 +200,7 @@ def create_guarded(dfd, name, content, replace=False):
                 warn("could not replace %s: %s" % (name, exc))
                 return False
         try:
-            create_exclusive(dfd, name, content)
+            create_exclusive(dfd, name, content, mode)
             return True
         except FileExistsError:
             warn("%s reappeared between the clear and the create; retrying" % name)
@@ -281,6 +285,117 @@ def configure_influx(sk_fd, token):
         os.close(cfg_fd)
 
 
+# REMOVE AFTER 2027-08-01. This repairs one closed population -- devices seeded
+# between v0.3.1+13 and the providers/simple fix -- and every boot after the last
+# of them has been repaired, reimaged or retired is a root write into a
+# container-owned directory bought for nothing. Removing it means deleting
+# migrate_gpsd_liner and its call site, the "the gpsd liner migration" scenarios
+# in tools/test-prestart.sh, and the settings.json paragraphs in AGENTS.md, after
+# which settings.json goes back to being a path this hook never writes.
+def migrate_gpsd_liner(sk_fd):
+    """Splice the missing Liner into a gpsd connection seeded before the fix.
+
+    gpsd writes a whole NMEA reporting cycle in one TCP write, so a pipeline that
+    hands it straight to the parser delivers several sentences as one blob and
+    every burst is rejected -- no position, at any server version. `default-data`
+    is copy-if-absent, so correcting the baked file reached new installs only:
+    every device seeded from v0.3.1+13 onward keeps the broken pipeline, while
+    apt reports success and the app version bumps.
+
+    The adjacency is the whole predicate, and it doubles as the unmodified check.
+    The server marks only a single `providers/simple` element editable, so the
+    hand-authored connection renders in the admin UI as a read-only textarea
+    whose one action is Delete -- no device reached this shape by being
+    configured. A connection recreated through the UI is one `providers/simple`
+    element; a hand-repaired one already has three. Neither matches.
+
+    Only the Liner goes in. Rewriting the connection to `providers/simple`, which
+    is what a new install now seeds, would discard a hand-edited host or port and
+    change the connection's identity in the admin UI -- more than repairing the
+    defect we shipped.
+
+    This is the only writer of settings.json here, and the reason that path needs
+    the same discipline as the secret files above: what makes it dangerous is
+    root writing into a directory uid 1000 owns, not the contents. It runs from
+    ExecStartPre with the container stopped, which is the only point where Signal
+    K -- the file's other writer -- provably is not mid-write.
+    """
+    backup = "settings.json.pre-liner"
+    try:
+        fd = open_regular(sk_fd, "settings.json")
+    except FileNotFoundError:
+        return  # a fresh install has none until the postinst seeds default-data
+
+    # The backup doubles as the record that this already ran, which is what keeps
+    # a repair from becoming a standing policy: an operator who restores the old
+    # connection deliberately would otherwise have it spliced again on the next
+    # boot, with no way to refuse short of uninstalling the package.
+    try:
+        os.lstat(backup, dir_fd=sk_fd)
+        os.close(fd)
+        return
+    except FileNotFoundError:
+        pass
+
+    with os.fdopen(fd) as f:  # owns fd from here, including on failure
+        mode = stat.S_IMODE(os.fstat(f.fileno()).st_mode)
+        original = f.read()
+
+    settings = json.loads(original)
+    if not isinstance(settings, dict):
+        raise ValueError(
+            "settings.json is a %s, not an object" % type(settings).__name__
+        )
+
+    spliced = False
+    for provider in settings.get("pipedProviders") or []:
+        elements = provider.get("pipeElements") if isinstance(provider, dict) else None
+        if not isinstance(elements, list):
+            continue
+        for i in range(len(elements) - 1):
+            pair = elements[i:i + 2]
+            if all(isinstance(e, dict) for e in pair) and [
+                e.get("type") for e in pair
+            ] == ["providers/gpsd", "providers/nmea0183-signalk"]:
+                elements.insert(i + 1, {"type": "providers/liner"})
+                spliced = True
+                break
+
+    if not spliced:
+        return
+
+    # The original goes down first: it is what the splice is derived from, and a
+    # migration whose backup failed is one the operator cannot undo.
+    if not create_guarded(sk_fd, backup, original, mode=mode):
+        warn("cannot write %s; leaving the gpsd connection alone" % backup)
+        return
+
+    tmp = "settings.json.tmp"
+    body = json.dumps(settings, indent=2) + "\n"
+    migrated = False
+    try:
+        if create_guarded(sk_fd, tmp, body, replace=True, mode=mode):
+            # renameat replaces the name and never follows it, so a symlink
+            # swapped in after the read above is overwritten rather than written
+            # through.
+            os.replace(tmp, "settings.json", src_dir_fd=sk_fd, dst_dir_fd=sk_fd)
+            migrated = True
+        else:
+            warn("cannot write %s; leaving the gpsd connection alone" % tmp)
+    finally:
+        if not migrated:
+            # A backup with no migration behind it reads as one on the next boot
+            # and would retire the repair without ever having made it.
+            try:
+                os.unlink(backup, dir_fd=sk_fd)
+            except OSError as exc:
+                warn("could not remove %s after a failed migration: %s" % (backup, exc))
+
+    if migrated:
+        print("Added the missing providers/liner to the gpsd connection")
+        print("The connection as it was is kept at %s/%s" % (SK_DATA, backup))
+
+
 sk_fd = open_dir(SK_DATA)
 root_fd = open_dir(DATA_ROOT)
 
@@ -325,6 +440,14 @@ if not existing:
     print("Security initialized with admin user.")
     print("NOTE: Local admin password stored in %s/admin-password" % DATA_ROOT)
     print("This is a fallback for emergency access. Use OIDC for regular login.")
+
+# A repair, not a precondition: a device left on the old connection shows no
+# position, which is where it already was, while an exception on the way there is
+# an ExecStartPre abort and no navigation server at all.
+try:
+    migrate_gpsd_liner(sk_fd)
+except Exception as exc:
+    warn("gpsd connection not migrated: %s" % exc)
 
 # Logging is not navigation: a failure here must not cost the boot.
 if INFLUX_TOKEN:
