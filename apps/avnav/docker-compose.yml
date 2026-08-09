@@ -15,7 +15,7 @@ services:
     # halos-proxy-network is auto-injected by container-packaging-tools
     ports:
       # Keep non-HTTP ports for external tool compatibility
-      - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"  # WebSocket for chart plotters
+      - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"  # ochartsng chart provider (shop UI, chart downloads)
       - "${AVNAV_NMEA_PORT:-34567}:34567"      # NMEA TCP stream
     volumes:
       - ${CONTAINER_DATA_ROOT}/data:/var/lib/avnav

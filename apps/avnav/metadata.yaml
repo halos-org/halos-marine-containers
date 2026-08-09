@@ -41,7 +41,7 @@ web_ui:
   protocol: http
   visible: true
 routing:
-  port: 8080  # Main web UI port (not the exposed 8083 AvnavOchartsPro port)
+  port: 8080  # Main web UI port (not the exposed 8083 ochartsng provider port)
   auth:
     mode: forward_auth
 layout:
