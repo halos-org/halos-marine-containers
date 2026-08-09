@@ -1,6 +1,9 @@
 services:
   avnav:
-    image: xfreex/avnav-stable:20251028
+    # Daily channel, not stable: upstream last rebuilt avnav-stable on
+    # 2025-10-28, and the ochartsng it bundles is rejected by the o-charts
+    # shop. Move back if upstream resumes stable builds.
+    image: xfreex/avnav-daily:20260709
     container_name: avnav
     init: true
     restart: unless-stopped
@@ -12,7 +15,7 @@ services:
     # halos-proxy-network is auto-injected by container-packaging-tools
     ports:
       # Keep non-HTTP ports for external tool compatibility
-      - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"  # WebSocket for chart plotters
+      - "${AVNAV_WEBSOCKET_PORT:-8083}:8083"  # ochartsng chart provider (shop UI, chart downloads)
       - "${AVNAV_NMEA_PORT:-34567}:34567"      # NMEA TCP stream
     volumes:
       - ${CONTAINER_DATA_ROOT}/data:/var/lib/avnav
