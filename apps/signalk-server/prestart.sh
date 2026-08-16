@@ -49,9 +49,16 @@ if [ -f "${INFLUXDB_ENV}" ]; then
     INFLUXDB_ADMIN_TOKEN=$(grep '^INFLUXDB_ADMIN_TOKEN=' "${INFLUXDB_ENV}" | cut -d= -f2-)
 fi
 
-QUESTDB_ENV="${QUESTDB_ENV:-/etc/container-apps/marine-questdb-container/env}"
+# The compose file, not the env file. `apt remove` leaves a package in
+# `deinstall ok config-files`: /etc/container-apps/marine-questdb-container/env
+# and the systemd unit both survive, and only `apt purge` takes them. The
+# compose file is payload and goes on either. Gating on env made "the app is
+# gone" false for the ordinary uninstall, which left settings.json naming a
+# provider that can never register -- and that is a standing warn notification,
+# not a quiet fallback. Verified on a device.
+QUESTDB_COMPOSE="${QUESTDB_COMPOSE:-/var/lib/container-apps/marine-questdb-container/docker-compose.yml}"
 QUESTDB_INSTALLED=""
-if [ -f "${QUESTDB_ENV}" ]; then
+if [ -f "${QUESTDB_COMPOSE}" ]; then
     QUESTDB_INSTALLED=1
 fi
 
@@ -70,6 +77,10 @@ QUESTDB_INSTALLED = bool(os.environ.get("HALOS_QUESTDB_INSTALLED"))
 # A racer that wins once will usually lose the next attempt; one that wins every
 # attempt is not a race we can outlast, and refusing to start is then correct.
 ATTEMPTS = 4
+
+# Declared in the plugin's own code, not derived from its package name, and it is
+# the key the history provider registry and settings.json both index by.
+QUESTDB_PLUGIN_ID = "signalk-questdb-history-provider"
 
 
 def warn(msg):
@@ -168,7 +179,7 @@ def create_exclusive(dfd, name, content, mode=0o600):
 
     The default is the secret-file mode. It is a parameter because settings.json
     holds no secret and is read and written by the container: tightening it to
-    0600 as a side effect of repairing it would be a second, silent change.
+    0600 as a side effect of rewriting it would be a second, silent change.
     """
     fd = os.open(
         name,
@@ -241,6 +252,51 @@ def converge_mode(dfd, name):
         os.close(fd)
 
 
+def read_settings(sk_fd):
+    """Parse settings.json into (settings, mode, original), None when absent.
+
+    Two writers below need the same three things, and each of them is a way to
+    corrupt a value neither writer was asked to touch. The mode is the permission
+    bits uid 1000 chose, kept because root recreates the file. UTF-8 is explicit
+    because settings.json is UTF-8 by specification while text mode would decode
+    it in the process locale -- under a single-byte locale a vessel name comes
+    back as two characters that json.dumps then re-escapes. The original text is
+    what the migration keeps as its backup.
+    """
+    try:
+        fd = open_regular(sk_fd, "settings.json")
+    except FileNotFoundError:
+        return None  # a fresh install has none until the postinst seeds default-data
+
+    with os.fdopen(fd, encoding="utf-8") as f:  # owns fd from here
+        # Permission bits only. S_IMODE keeps setuid and setgid as well -- root
+        # would otherwise reproduce them on a file it creates here.
+        mode = stat.S_IMODE(os.fstat(f.fileno()).st_mode) & 0o777
+        original = f.read()
+
+    settings = json.loads(original)
+    if not isinstance(settings, dict):
+        raise ValueError(
+            "settings.json is a %s, not an object" % type(settings).__name__
+        )
+    return settings, mode, original
+
+
+def write_settings(sk_fd, settings, mode):
+    """Replace settings.json atomically. False when the staged write failed."""
+    # Not settings.json.tmp: that is the name the server's own atomic write stages
+    # through, so a leftover there is a root-owned file in its way and its next
+    # save fails EACCES.
+    tmp = "settings.json.halos-tmp"
+    body = json.dumps(settings, indent=2) + "\n"
+    if not create_guarded(sk_fd, tmp, body, replace=True, mode=mode):
+        return False
+    # renameat replaces the name and never follows it, so a symlink swapped in
+    # after the read above is overwritten rather than written through.
+    os.replace(tmp, "settings.json", src_dir_fd=sk_fd, dst_dir_fd=sk_fd)
+    return True
+
+
 def open_plugin_config_dir(sk_fd):
     """Descriptor for plugin-config-data, or None when it cannot be made safe.
 
@@ -265,9 +321,7 @@ def configure_questdb(sk_fd):
     Written once and then left alone, unlike the InfluxDB config below. That one
     is rewritten every boot because a rotating token has to reach it; this one
     carries no secret, so a rewrite could only ever discard what the operator
-    changed -- path filters, sampling rates, retention. It would also re-arm the
-    one-off default-provider promotion, taking back a default the operator had
-    since moved somewhere else.
+    changed -- path filters, sampling rates, retention.
 
     Host and ports are written explicitly even though they are the plugin's
     defaults. A rebase onto a new upstream may move those defaults, and a
@@ -277,7 +331,7 @@ def configure_questdb(sk_fd):
     if cfg_fd is None:
         return
     try:
-        name = "signalk-questdb-history-provider.json"
+        name = QUESTDB_PLUGIN_ID + ".json"
         if not clear_unexpected(cfg_fd, name):
             warn("cannot make %s safe to write; skipping" % name)
             return
@@ -298,17 +352,78 @@ def configure_questdb(sk_fd):
                 "questdbHost": "127.0.0.1",
                 "questdbHttpPort": 9000,
                 "questdbIlpPort": 9009,
-                # Claimed once by the plugin, which clears this flag itself the
-                # moment the server confirms. Writing settings.json here instead
-                # would name a provider before it has registered, and Signal K
-                # raises a warn notification for a configured provider that
-                # stays missing.
-                "promoteToDefaultProvider": True,
             },
         }, indent=2) + "\n"):
             print("QuestDB history provider configured")
     finally:
         os.close(cfg_fd)
+
+
+def set_default_history_provider(sk_fd, installed):
+    """Keep settings.json's default history provider in step with the app.
+
+    When settings name no default, Signal K serves history from whichever
+    provider registered first. signalk-to-influxdb2 is baked into the same image,
+    so that is decided by plugin load order -- and InfluxDB wins it on a device
+    with both installed, which is the configuration we ship.
+
+    settings.json is the only place the server takes this from. The plugin cannot
+    set it: POST /signalk/v2/* wants write-level credentials, and a plugin
+    calling its own server over loopback carries none, so it gets 401 on every
+    boot of a device with security enabled -- which is every HaLOS device.
+
+    Two directions, both narrow:
+
+    * The app is installed and no default is named -- name QuestDB. Only when
+      the key is absent, so an operator who moves the default to InfluxDB
+      keeps it.
+    * The app is gone and the key still names QuestDB -- drop the key. Left
+      behind it costs a standing alarm: the first history request after that
+      raises a warn notification at notifications.server.history.defaultProvider
+      ("Configured default history provider ... is not available"), and the
+      server clears it only when that provider registers again, which for an
+      uninstalled app is never. Verified on a device.
+
+    Any other value is the operator's and is never touched, including the empty
+    string -- that is how the server reads "no default, use the fallback".
+    """
+    read = read_settings(sk_fd)
+    if read is None:
+        return
+    settings, mode, _ = read
+
+    history = settings.get("historyApi")
+    if history is None:
+        history = {}
+    elif not isinstance(history, dict):
+        # Malformed, and root is not the process to decide what it meant.
+        warn("historyApi is a %s, not an object; leaving it alone"
+             % type(history).__name__)
+        return
+
+    # Key presence, not truthiness, on the write side: an empty value is a
+    # choice, and taking it back on every boot is the sticky rewrite this whole
+    # approach exists to avoid.
+    present = "defaultProvider" in history
+    if installed:
+        if present:
+            return
+        history["defaultProvider"] = QUESTDB_PLUGIN_ID
+        message = "QuestDB set as the default history provider"
+    else:
+        # Exact match only. An operator who chose InfluxDB keeps it whether or
+        # not QuestDB is installed; the only value this may remove is the one
+        # this hook wrote.
+        if history.get("defaultProvider") != QUESTDB_PLUGIN_ID:
+            return
+        del history["defaultProvider"]
+        message = "QuestDB is gone; cleared it as the default history provider"
+
+    settings["historyApi"] = history
+    if write_settings(sk_fd, settings, mode):
+        print(message)
+    else:
+        warn("could not update the default history provider")
 
 
 def configure_influx(sk_fd, token):
@@ -372,16 +487,17 @@ def configure_influx(sk_fd, token):
 # container-owned directory bought for nothing. What goes with it:
 #
 #   * migrate_gpsd_liner and its call site
-#   * the `mode` parameter on create_exclusive and create_guarded, and the
-#     paragraph of create_exclusive's docstring that justifies it -- this is the
-#     only caller that passes anything but the default
 #   * the settings.json.pre-liner hand_over below (the settings.json one above it
 #     predates this and stays -- the postinst creates that file root-owned)
 #   * in tools/test-prestart.sh: the "the gpsd liner migration" scenarios, the
 #     element_types helper and the PRE_LINER_SETTINGS fixture
-#   * the settings.json paragraphs in AGENTS.md
+#   * the gpsd paragraphs in AGENTS.md
 #
-# After which settings.json goes back to being a path this hook never writes.
+# What does NOT go with it: read_settings, write_settings, the `mode` parameter
+# they need on create_exclusive and create_guarded, and the settings.json
+# hand_over. set_default_history_provider writes the file too, and unlike this it
+# has no expiry -- so removing this leaves settings.json a path the hook still
+# writes, on every device that has the QuestDB app.
 def migrate_gpsd_liner(sk_fd):
     """Splice the missing Liner into a gpsd connection seeded before the fix.
 
@@ -404,9 +520,9 @@ def migrate_gpsd_liner(sk_fd):
     change the connection's identity in the admin UI -- more than repairing the
     defect we shipped.
 
-    This is the only writer of settings.json here, and the reason that path needs
-    the same discipline as the secret files above: what makes it dangerous is
-    root writing into a directory uid 1000 owns, not the contents.
+    settings.json needs the same discipline as the secret files above, and for a
+    different reason: what makes it dangerous is root writing into a directory
+    uid 1000 owns, not the contents.
 
     ExecStartPre is where this belongs because the unit stops the container before
     it restarts, so Signal K -- the file's other writer -- is normally not running
@@ -431,27 +547,10 @@ def migrate_gpsd_liner(sk_fd):
     except FileNotFoundError:
         pass
 
-    try:
-        fd = open_regular(sk_fd, "settings.json")
-    except FileNotFoundError:
-        return  # a fresh install has none until the postinst seeds default-data
-
-    # UTF-8 explicitly: settings.json is UTF-8 by specification, and text mode
-    # otherwise decodes it in the process locale. Under a single-byte locale a
-    # vessel name comes back as two characters that json.dumps then re-escapes,
-    # so the rewrite would corrupt a value it was not asked to touch.
-    with os.fdopen(fd, encoding="utf-8") as f:  # owns fd from here
-        # Permission bits only. uid 1000 owns settings.json and chooses its mode,
-        # and S_IMODE keeps setuid and setgid as well -- root would reproduce them
-        # on a file it creates here and, for the backup, never hands over.
-        mode = stat.S_IMODE(os.fstat(f.fileno()).st_mode) & 0o777
-        original = f.read()
-
-    settings = json.loads(original)
-    if not isinstance(settings, dict):
-        raise ValueError(
-            "settings.json is a %s, not an object" % type(settings).__name__
-        )
+    read = read_settings(sk_fd)
+    if read is None:
+        return
+    settings, mode, original = read
 
     spliced = False
     for provider in settings.get("pipedProviders") or []:
@@ -470,18 +569,10 @@ def migrate_gpsd_liner(sk_fd):
     if not spliced:
         return
 
-    # Not settings.json.tmp: that is the name the server's own atomic write stages
-    # through, so a leftover there is a root-owned file in its way and its next
-    # save fails EACCES.
-    tmp = "settings.json.halos-tmp"
-    body = json.dumps(settings, indent=2) + "\n"
-    if not create_guarded(sk_fd, tmp, body, replace=True, mode=mode):
-        warn("cannot write %s; leaving the gpsd connection alone" % tmp)
+    if not write_settings(sk_fd, settings, mode):
+        warn("cannot stage the rewrite; leaving the gpsd connection alone")
         return
 
-    # renameat replaces the name and never follows it, so a symlink swapped in
-    # after the read above is overwritten rather than written through.
-    os.replace(tmp, "settings.json", src_dir_fd=sk_fd, dst_dir_fd=sk_fd)
     print("Added the missing providers/liner to the gpsd connection")
 
     # The record of the repair goes down after the repair, never before. Anything
@@ -566,6 +657,16 @@ if QUESTDB_INSTALLED:
         configure_questdb(sk_fd)
     except Exception as exc:
         warn("QuestDB plugin config not written: %s" % exc)
+
+# Unconditional, unlike the plugin config above: this runs to clear the key on
+# a device the app was removed from, which is a state only reachable with
+# QUESTDB_INSTALLED false. Separate from the config for the rest -- they fail
+# for different reasons, and the plugin still records when only the default is
+# missing.
+try:
+    set_default_history_provider(sk_fd, QUESTDB_INSTALLED)
+except Exception as exc:
+    warn("default history provider not updated: %s" % exc)
 
 os.close(sk_fd)
 os.close(root_fd)
