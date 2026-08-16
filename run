@@ -37,6 +37,13 @@ function lint {
   local failed=0
   local checked=0
 
+  # Compose interpolates before it validates, and several apps carry runtime
+  # values the unit supplies (${HALOS_DOMAIN} in extra_hosts, for one). Unset,
+  # those become empty strings that fail schema checks, so lint would report a
+  # valid file as broken. Placeholders keep the check on the file's own shape.
+  export HALOS_DOMAIN=lint.invalid
+  export CONTAINER_DATA_ROOT=/nonexistent/lint
+
   for compose_file in apps/*/docker-compose.yml; do
     if [ -f "$compose_file" ]; then
       checked=$((checked + 1))
@@ -45,7 +52,10 @@ function lint {
         echo "  ✅ $app_name"
       else
         echo "  ❌ $app_name"
-        docker compose -f "$compose_file" config 2>&1 | sed 's/^/     /'
+        # `|| true`: errexit plus pipefail would otherwise abort the whole run
+        # here, so the first bad file hid every file after it and the summary
+        # below never printed.
+        docker compose -f "$compose_file" config 2>&1 | sed 's/^/     /' || true
         failed=$((failed + 1))
       fi
     fi
