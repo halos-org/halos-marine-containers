@@ -38,21 +38,20 @@ def _environment() -> dict[str, str]:
     return dict(item.split("=", 1) for item in env)
 
 
-def test_ingest_and_sql_ports_are_loopback_only():
-    """ILP and the PostgreSQL wire protocol reach the database with no auth.
+def test_every_published_port_is_loopback_only():
+    """No port of QuestDB's authenticates anything, on any protocol.
 
-    Publishing either on a wildcard address hands the vessel's history to
-    anything on the boat network, with no credential in the way.
+    Publishing any of them on a wildcard address hands the vessel's history to
+    the whole boat network with no credential in the way. This covers the
+    device's own interfaces only -- containers on halos-proxy-network reach
+    every container port regardless of what is published here.
     """
-    unauthenticated = {"9009", "8812"}
-
     for mapping in _service()["ports"]:
         host_ip, host_port, _container_port = mapping.split(":")
-        if host_port in unauthenticated:
-            assert host_ip == "127.0.0.1", (
-                f"port {host_port} is published on {host_ip}; QuestDB does not "
-                "authenticate it, so it must stay on loopback"
-            )
+        assert host_ip == "127.0.0.1", (
+            f"port {host_port} is published on {host_ip}; QuestDB authenticates "
+            "nothing, so no port may leave the host's loopback interface"
+        )
 
 
 def test_commit_mode_is_sync():
@@ -80,13 +79,14 @@ def test_prestart_raises_max_map_count():
     assert str(RECOMMENDED_MAX_MAP_COUNT) in prestart
 
 
-def test_console_is_not_routed_without_authentication():
+def test_console_is_gated_by_forward_auth():
     """The console is a full SQL client and can drop tables.
 
-    Exposing it through Traefik with auth mode "none" -- as InfluxDB does,
-    because InfluxDB authenticates its own UI -- would publish it to anyone who
-    reaches the device.
+    Authelia is the whole gate: QuestDB has no login of its own, so nothing
+    below forward_auth protects it. Mode "none" -- which InfluxDB can afford,
+    because InfluxDB authenticates its own UI -- would publish it outright, and
+    "oidc" would claim a native OAuth integration QuestDB does not have.
     """
     auth_mode = _metadata()["routing"]["auth"]["mode"]
 
-    assert auth_mode != "none"
+    assert auth_mode == "forward_auth"

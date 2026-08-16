@@ -8,11 +8,18 @@ services:
       driver: journald
       options:
         tag: "{{.Name}}"
-    # Only the HTTP port needs to leave the container: Signal K runs with host
-    # networking and reaches it on loopback, and Traefik reaches it over
-    # halos-proxy-network (auto-injected). ILP and the PostgreSQL wire protocol
-    # take any caller with no credential, so they stay on loopback and get no
-    # Traefik router.
+    # Loopback only: Signal K runs with host networking and reaches these on
+    # 127.0.0.1, and nothing else on the boat network should reach a database
+    # that authenticates none of its three protocols. Only the HTTP port gets a
+    # Traefik router, behind Authelia.
+    #
+    # This bounds the HOST interfaces and nothing else. The generator injects
+    # halos-proxy-network (routing.py: join_proxy_network is true for every app
+    # that is not host-networked), it is a plain bridge, and Docker port
+    # publication does not gate container-to-container traffic -- so any app
+    # container on that network reaches all three ports directly, Traefik and
+    # Authelia not involved. QuestDB is the first datastore here with no
+    # credential of its own to fall back on.
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9009:9009"

@@ -5,9 +5,12 @@ upstream_version: 10.0.0
 description: Time-series database for high-rate marine data logging
 long_description: |
   QuestDB is a time-series database built for high ingestion rates on modest
-  hardware. It stores Signal K history for the QuestDB history provider plugin,
-  which serves it back to Skip, Freeboard-SK and any other Signal K client
-  through the server's history API.
+  hardware.
+
+  On its own it records nothing. It is the storage backend for the QuestDB
+  history provider plugin in Signal K, which writes vessel data into it and
+  serves it back to Skip, Freeboard-SK and any other Signal K client through
+  the server's history API. Install and configure that plugin to log anything.
 
   Features:
   - Column-oriented storage with daily partitioning and deduplication
