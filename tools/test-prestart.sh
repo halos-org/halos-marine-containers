@@ -164,6 +164,7 @@ run_hook() {  # echoes exit status
         RUNTIME_ENV="${SANDBOX}/runtime.env" \
         HALOS_DOMAIN="test.local" \
         INFLUXDB_ENV="${SANDBOX}/influxdb.env" \
+        QUESTDB_ENV="${SANDBOX}/questdb.env" \
         PYTHONPATH="${SANDBOX}/pylib" \
         ${TIMEOUT:+"${TIMEOUT}" -s KILL 20} \
         bash -c 'set -e; . "$1"' _ "${HOOK}" > "${SANDBOX}/out" 2>&1
@@ -172,6 +173,10 @@ run_hook() {  # echoes exit status
 
 influx_available() {  # $1 = token to publish
     printf 'INFLUXDB_ADMIN_TOKEN=%s\n' "$1" > "${SANDBOX}/influxdb.env"
+}
+
+questdb_available() {  # the app's env file is the only signal; it holds no secret
+    : > "${SANDBOX}/questdb.env"
 }
 
 # Matches the whole call, not just the path. Asserting only that the path was
@@ -253,6 +258,60 @@ check "no influx config without the InfluxDB env file" "$(run_hook)" "0"
 [ ! -e "${SK}/plugin-config-data/signalk-to-influxdb2.json" ] &&
     ok "  config is absent" ||
     bad "  config is absent" "$(cat "${SK}/plugin-config-data/signalk-to-influxdb2.json")"
+teardown
+
+# QuestDB's config is gated on the app being installed, unlike InfluxDB's. There
+# is no token to inject here, so nothing forces an unconditional write -- and a
+# config naming a database that is not there makes the plugin report an error
+# on a device that simply chose not to install it.
+setup
+questdb_available
+check "questdb config is written when the app is installed" "$(run_hook)" "0"
+QDB_CFG="${SK}/plugin-config-data/signalk-questdb-history-provider.json"
+check "  at 0600" "$(mode "${QDB_CFG}")" "600"
+python3 - "${QDB_CFG}" <<'EOF' && ok "  external mode, loopback, promotion armed" ||
+import json, sys
+c = json.load(open(sys.argv[1]))
+cfg = c["configuration"]
+assert c["enabled"] is True, c
+assert cfg["managedContainer"] is False, cfg
+assert cfg["questdbHost"] == "127.0.0.1", cfg
+assert cfg["promoteToDefaultProvider"] is True, cfg
+EOF
+    bad "  external mode, loopback, promotion armed" "$(cat "${QDB_CFG}")"
+teardown
+
+setup
+check "no questdb config without the app installed" "$(run_hook)" "0"
+[ ! -e "${SK}/plugin-config-data/signalk-questdb-history-provider.json" ] &&
+    ok "  config is absent" ||
+    bad "  config is absent" "$(cat "${SK}/plugin-config-data/signalk-questdb-history-provider.json")"
+teardown
+
+# Write once, never rewrite. InfluxDB's config is rewritten every boot because a
+# rotating token has to reach it; this one carries no secret, so rewriting would
+# only ever discard what the operator changed -- path filters, sampling rates,
+# retention -- on the next restart. It would also re-arm the one-off promotion,
+# taking back a default the operator had since moved elsewhere.
+setup
+questdb_available
+run_hook > /dev/null
+QDB_CFG="${SK}/plugin-config-data/signalk-questdb-history-provider.json"
+python3 - "${QDB_CFG}" <<'EOF'
+import json, sys
+c = json.load(open(sys.argv[1]))
+c["configuration"]["retentionDays"] = 30
+c["configuration"]["promoteToDefaultProvider"] = False
+json.dump(c, open(sys.argv[1], "w"))
+EOF
+check "an edited questdb config survives the next boot" "$(run_hook)" "0"
+python3 - "${QDB_CFG}" <<'EOF' && ok "  operator edits are intact" ||
+import json, sys
+cfg = json.load(open(sys.argv[1]))["configuration"]
+assert cfg["retentionDays"] == 30, cfg
+assert cfg["promoteToDefaultProvider"] is False, cfg
+EOF
+    bad "  operator edits are intact" "$(cat "${QDB_CFG}")"
 teardown
 
 # signalk-halpi's postinst creates both paths as root before Signal K has ever
