@@ -164,7 +164,7 @@ run_hook() {  # echoes exit status
         RUNTIME_ENV="${SANDBOX}/runtime.env" \
         HALOS_DOMAIN="test.local" \
         INFLUXDB_ENV="${SANDBOX}/influxdb.env" \
-        QUESTDB_ENV="${SANDBOX}/questdb.env" \
+        QUESTDB_COMPOSE="${SANDBOX}/questdb-compose.yml" \
         PYTHONPATH="${SANDBOX}/pylib" \
         ${TIMEOUT:+"${TIMEOUT}" -s KILL 20} \
         bash -c 'set -e; . "$1"' _ "${HOOK}" > "${SANDBOX}/out" 2>&1
@@ -175,8 +175,8 @@ influx_available() {  # $1 = token to publish
     printf 'INFLUXDB_ADMIN_TOKEN=%s\n' "$1" > "${SANDBOX}/influxdb.env"
 }
 
-questdb_available() {  # the app's env file is the only signal; it holds no secret
-    : > "${SANDBOX}/questdb.env"
+questdb_available() {  # the app's compose file is the signal; see the hook
+    : > "${SANDBOX}/questdb-compose.yml"
 }
 
 # Matches the whole call, not just the path. Asserting only that the path was
@@ -269,16 +269,19 @@ questdb_available
 check "questdb config is written when the app is installed" "$(run_hook)" "0"
 QDB_CFG="${SK}/plugin-config-data/signalk-questdb-history-provider.json"
 check "  at 0600" "$(mode "${QDB_CFG}")" "600"
-python3 - "${QDB_CFG}" <<'EOF' && ok "  external mode, loopback, promotion armed" ||
+python3 - "${QDB_CFG}" <<'EOF' && ok "  external mode, loopback, no promotion flag" ||
 import json, sys
 c = json.load(open(sys.argv[1]))
 cfg = c["configuration"]
 assert c["enabled"] is True, c
 assert cfg["managedContainer"] is False, cfg
 assert cfg["questdbHost"] == "127.0.0.1", cfg
-assert cfg["promoteToDefaultProvider"] is True, cfg
+# The plugin cannot promote itself: the route is admin-authenticated and it
+# calls its own server with no credentials, so arming this only buys a 401 in
+# the log on every boot. settings.json carries the default instead.
+assert "promoteToDefaultProvider" not in cfg, cfg
 EOF
-    bad "  external mode, loopback, promotion armed" "$(cat "${QDB_CFG}")"
+    bad "  external mode, loopback, no promotion flag" "$(cat "${QDB_CFG}")"
 teardown
 
 setup
@@ -291,8 +294,7 @@ teardown
 # Write once, never rewrite. InfluxDB's config is rewritten every boot because a
 # rotating token has to reach it; this one carries no secret, so rewriting would
 # only ever discard what the operator changed -- path filters, sampling rates,
-# retention -- on the next restart. It would also re-arm the one-off promotion,
-# taking back a default the operator had since moved elsewhere.
+# retention -- on the next restart.
 setup
 questdb_available
 run_hook > /dev/null
@@ -301,7 +303,7 @@ python3 - "${QDB_CFG}" <<'EOF'
 import json, sys
 c = json.load(open(sys.argv[1]))
 c["configuration"]["retentionDays"] = 30
-c["configuration"]["promoteToDefaultProvider"] = False
+c["configuration"]["questdbHost"] = "192.168.1.50"
 json.dump(c, open(sys.argv[1], "w"))
 EOF
 check "an edited questdb config survives the next boot" "$(run_hook)" "0"
@@ -309,9 +311,114 @@ python3 - "${QDB_CFG}" <<'EOF' && ok "  operator edits are intact" ||
 import json, sys
 cfg = json.load(open(sys.argv[1]))["configuration"]
 assert cfg["retentionDays"] == 30, cfg
-assert cfg["promoteToDefaultProvider"] is False, cfg
+assert cfg["questdbHost"] == "192.168.1.50", cfg
 EOF
     bad "  operator edits are intact" "$(cat "${QDB_CFG}")"
+teardown
+
+# The default history provider. Signal K serves history from whichever provider
+# registered first when settings name none, and signalk-to-influxdb2 is baked
+# into the same image -- so on a device with both apps it is plugin load order
+# that decides, and InfluxDB wins it. settings.json is the only place the server
+# takes this from; the plugin's own route for it is admin-authenticated.
+SETTINGS='{"interfaces":{"nmea-tcp":false},"vessel":{"uuid":"urn:mrn:signalk:uuid:test"}}'
+default_provider() {  # echoes the configured id, or the empty string
+    python3 -c 'import json,sys; print((json.load(open(sys.argv[1])).get("historyApi") or {}).get("defaultProvider",""))' "$1"
+}
+
+setup
+questdb_available
+printf '%s\n' "${SETTINGS}" > "${SK}/settings.json"
+chmod 644 "${SK}/settings.json"
+check "questdb becomes the default history provider" "$(run_hook)" "0"
+check "  named in settings.json" \
+    "$(default_provider "${SK}/settings.json")" "signalk-questdb-history-provider"
+check "  the file keeps its mode" "$(mode "${SK}/settings.json")" "644"
+python3 - "${SK}/settings.json" <<'EOF' && ok "  nothing else in the document changes" ||
+import json, sys
+s = json.load(open(sys.argv[1]))
+assert s["vessel"]["uuid"] == "urn:mrn:signalk:uuid:test", s
+assert s["interfaces"] == {"nmea-tcp": False}, s
+EOF
+    bad "  nothing else in the document changes" "$(cat "${SK}/settings.json")"
+teardown
+
+# The operator's choice outranks ours, and it is a plain key with no backup file
+# to record that we already ran -- so absence of the key is the only signal that
+# nobody has chosen. Rewriting it every boot would take the choice back.
+setup
+questdb_available
+printf '%s\n' '{"historyApi":{"defaultProvider":"signalk-to-influxdb2"}}' > "${SK}/settings.json"
+check "a chosen default history provider is left alone" "$(run_hook)" "0"
+check "  still InfluxDB" \
+    "$(default_provider "${SK}/settings.json")" "signalk-to-influxdb2"
+teardown
+
+# Presence, not truthiness. An empty value is how the server reads "no default,
+# use whichever registers first" -- a choice like any other, and one a truthiness
+# test would overwrite on every boot.
+setup
+questdb_available
+printf '%s\n' '{"historyApi":{"defaultProvider":""}}' > "${SK}/settings.json"
+check "an emptied default history provider is left alone" "$(run_hook)" "0"
+check "  still empty" "$(default_provider "${SK}/settings.json")" ""
+teardown
+
+# Nothing here knows what a non-object historyApi was meant to be, and replacing
+# it would discard whatever it held.
+setup
+questdb_available
+printf '%s\n' '{"historyApi":"nonsense"}' > "${SK}/settings.json"
+check "a malformed historyApi does not block the start" "$(run_hook)" "0"
+check "  and is left as it was" \
+    "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyApi"])' "${SK}/settings.json")" \
+    "nonsense"
+teardown
+
+setup
+printf '%s\n' "${SETTINGS}" > "${SK}/settings.json"
+check "no default history provider without the questdb app" "$(run_hook)" "0"
+check "  settings name none" "$(default_provider "${SK}/settings.json")" ""
+teardown
+
+# Removing the app has to take the key with it. A configured provider that
+# never registers is not silent: the first history request after that raises a
+# warn notification at notifications.server.history.defaultProvider, and the
+# server clears it only when that provider registers again -- never, for an app
+# that is gone. So it is a standing alarm on the vessel, not a fallback.
+setup
+printf '%s\n' '{"historyApi":{"defaultProvider":"signalk-questdb-history-provider"},"vessel":{"uuid":"x"}}' \
+    > "${SK}/settings.json"
+check "removing the questdb app clears the default" "$(run_hook)" "0"
+check "  the key is gone" "$(default_provider "${SK}/settings.json")" ""
+python3 - "${SK}/settings.json" <<'EOF' && ok "  historyApi survives, and so does the rest" ||
+import json, sys
+s = json.load(open(sys.argv[1]))
+assert "defaultProvider" not in s["historyApi"], s
+assert s["vessel"]["uuid"] == "x", s
+EOF
+    bad "  historyApi survives, and so does the rest" "$(cat "${SK}/settings.json")"
+teardown
+
+# Exact match only. Whatever else the operator chose is theirs, and the app
+# being absent says nothing about whether they still want it.
+setup
+printf '%s\n' '{"historyApi":{"defaultProvider":"signalk-to-influxdb2"}}' > "${SK}/settings.json"
+check "removing questdb leaves another provider alone" "$(run_hook)" "0"
+check "  still InfluxDB" \
+    "$(default_provider "${SK}/settings.json")" "signalk-to-influxdb2"
+teardown
+
+# A fresh install has no settings.json until the postinst seeds default-data, and
+# the hook runs before that on the very first start. Writing a partial file here
+# would lose every default the seed carries, so it does nothing and the next boot
+# picks it up.
+setup
+questdb_available
+check "a missing settings.json is not created" "$(run_hook)" "0"
+[ ! -e "${SK}/settings.json" ] &&
+    ok "  settings.json is still absent" ||
+    bad "  settings.json is still absent" "$(cat "${SK}/settings.json")"
 teardown
 
 # signalk-halpi's postinst creates both paths as root before Signal K has ever
