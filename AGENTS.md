@@ -304,13 +304,19 @@ Three of the hook's jobs look like leftovers and are not:
   into a container exposes them; `package.json` only because nothing writes it,
   so adding a write does.
 
-  `settings.json` was in that list until the gpsd liner migration below gave it a
-  writer, and it is the case to read before adding another one. The file holds
-  nothing secret, so what makes it dangerous is only that root writes into a
-  directory uid 1000 owns — the same property, arrived at without a secret to
-  point to. It goes through the same descriptor-relative `O_EXCL` create and
-  `renameat` as everything else here, and the temp and backup names it writes are
-  covered by those creates rather than by a guard that lists them.
+  `settings.json` was in that list until it acquired writers, and it is the case
+  to read before adding another one. The file holds nothing secret, so what makes
+  it dangerous is only that root writes into a directory uid 1000 owns — the same
+  property, arrived at without a secret to point to. It goes through the same
+  descriptor-relative `O_EXCL` create and `renameat` as everything else here, and
+  the temp and backup names it writes are covered by those creates rather than by
+  a guard that lists them.
+
+  Both writers share `read_settings` and `write_settings` rather than each
+  carrying a copy. The read has three ways to corrupt a value it was not asked to
+  touch — dropping the mode uid 1000 chose, decoding in the process locale
+  instead of UTF-8, accepting a document that is not an object — and a second
+  copy only has to drift on one of them.
 
 - **`node_modules` and `package.json` are handed to uid 1000 on every start.**
   `signalk-halpi`'s postinst creates both as root when it registers itself as a
@@ -397,6 +403,45 @@ actually recreates the container.
 date the migration is a root write into a container-owned directory that can no
 longer find anything to repair — open an issue to take it out rather than
 renewing it by default.
+
+### The default history provider
+
+`settings.json`'s `historyApi.defaultProvider` is the only place the server takes
+this from. The prestart writes it when the QuestDB app is installed and the key
+is absent, and removes it when the app is gone and the key still names QuestDB.
+Every other value is the operator's and is never touched.
+
+**The plugin cannot set it, and trying looks like it works.** Signal K's route
+for it, `POST /signalk/v2/api/history/_providers/_default/:id`, is covered by
+`writeAuthenticationMiddleware` on `POST /signalk/v2/*`, which wants `admin` or
+`readwrite`. A plugin runs inside the server but reaches that route as an
+ordinary loopback client with no credentials, so it gets 401 on every boot of a
+device with security enabled — which is every HaLOS device. The plugin did
+exactly this until the fix, logging one 401 per boot forever while nothing
+downstream noticed.
+
+**Doing nothing is not neutral.** With no configured default, the server serves
+history from whichever provider registered first, which is plugin load order.
+`signalk-to-influxdb2` is baked into the same image, so on a device with both apps
+it wins — confirmed on hardware: `_providers` reported InfluxDB `isDefault: true`
+and QuestDB `false`, which is the opposite of what the QuestDB app is for.
+
+**A key naming a gone provider is a standing alarm, not a fallback.** This was
+first written the other way, from a device test that never exercised the path.
+The warn is raised by `warnIfConfiguredUnavailable()`, which `useProvider()`
+calls — so a *history request* triggers it, not a timer, and probing the
+notification tree before issuing one shows nothing. Issue one and
+`notifications.server.history.defaultProvider` reports `state: "warn"`,
+"Configured default history provider ... is not available, using ... instead".
+`warnedUnavailable` latches, and only `notifyConfiguredAvailable()` clears it —
+when the provider registers, which for an uninstalled app is never. Hence the
+removal branch. It matches the exact value only, so an operator who chose
+InfluxDB keeps it whether or not QuestDB is installed.
+
+**It needs 2.31.0 or newer.** Persistence landed in that release (`feat: persist
+default History API provider, selectable in Admin UI`). On 2.30.0 the key is read
+by nothing and the write is inert — the failure is silent in both directions, so
+a downgrade of the pinned image below 2.31.0 takes this feature with it.
 
 ### Signal K Plugin Set
 
