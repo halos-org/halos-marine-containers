@@ -1,0 +1,50 @@
+name: QuestDB
+app_id: questdb
+version: 10.0.0-1
+upstream_version: 10.0.0
+description: Time-series database for high-rate marine data logging
+long_description: |
+  QuestDB is a time-series database built for high ingestion rates on modest
+  hardware. It stores Signal K history for the QuestDB history provider plugin,
+  which serves it back to Skip, Freeboard-SK and any other Signal K client
+  through the server's history API.
+
+  Features:
+  - Column-oriented storage with daily partitioning and deduplication
+  - SQL with time-series extensions, through a web console or PostgreSQL clients
+  - InfluxDB line protocol ingestion
+  - PostgreSQL wire protocol, so Grafana reads it with its standard datasource
+  - Parquet and CSV export
+homepage: https://questdb.com/
+maintainer: Matti Airas <matti.airas@hatlabs.fi>
+license: Apache-2.0
+tags:
+  - role::container-app
+  - field::marine
+  - category::monitoring
+  - interface::web
+  - use::organizing
+  - works-with::logfile
+debian_section: net
+architecture: all
+depends:
+  - docker.io (>= 20.10) | docker-ce (>= 20.10)
+web_ui:
+  enabled: true
+  path: /
+  port: 9000
+  protocol: http
+  visible: true
+routing:
+  port: 9000
+  auth:
+    # QuestDB's open-source build has no authentication and no SQL permission
+    # model, so the console is an unrestricted client that can drop tables.
+    # Traefik carries the whole gate; mode: none would publish it outright.
+    mode: forward_auth
+layout:
+  priority: 50
+  width: 2
+  height: 2
+default_config:
+  QUESTDB_MEMORY_LIMIT: 768m

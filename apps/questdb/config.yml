@@ -1,0 +1,17 @@
+version: "1.0"
+
+groups:
+  - id: resources
+    label: Resource Limits
+    description: Caps applied to the QuestDB container
+    fields:
+      - id: QUESTDB_MEMORY_LIMIT
+        label: Memory Limit
+        type: string
+        default: 768m
+        required: true
+        description: >-
+          Hard memory cap for the container (e.g. 512m, 1g, 2g). QuestDB's JVM
+          sizes its heap from this, so it bounds total memory rather than heap
+          alone. The default suits a device running the full marine stack;
+          raise it on hardware with memory to spare.
