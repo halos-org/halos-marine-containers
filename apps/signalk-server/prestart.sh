@@ -49,15 +49,23 @@ if [ -f "${INFLUXDB_ENV}" ]; then
     INFLUXDB_ADMIN_TOKEN=$(grep '^INFLUXDB_ADMIN_TOKEN=' "${INFLUXDB_ENV}" | cut -d= -f2-)
 fi
 
+QUESTDB_ENV="${QUESTDB_ENV:-/etc/container-apps/marine-questdb-container/env}"
+QUESTDB_INSTALLED=""
+if [ -f "${QUESTDB_ENV}" ]; then
+    QUESTDB_INSTALLED=1
+fi
+
 HALOS_DATA_ROOT="${CONTAINER_DATA_ROOT}" \
 HALOS_SK_DATA="${SIGNALK_DATA}" \
 HALOS_INFLUX_TOKEN="${INFLUXDB_ADMIN_TOKEN}" \
+HALOS_QUESTDB_INSTALLED="${QUESTDB_INSTALLED}" \
 python3 -P - <<'HALOS_SECRETS_PY'
 import errno, json, os, secrets, stat, sys
 
 DATA_ROOT = os.environ["HALOS_DATA_ROOT"]
 SK_DATA = os.environ["HALOS_SK_DATA"]
 INFLUX_TOKEN = os.environ.get("HALOS_INFLUX_TOKEN") or ""
+QUESTDB_INSTALLED = bool(os.environ.get("HALOS_QUESTDB_INSTALLED"))
 
 # A racer that wins once will usually lose the next attempt; one that wins every
 # attempt is not a race we can outlast, and refusing to start is then correct.
@@ -233,17 +241,81 @@ def converge_mode(dfd, name):
         os.close(fd)
 
 
-def configure_influx(sk_fd, token):
-    """Point the logging plugin at InfluxDB. Never fatal; see the call site."""
+def open_plugin_config_dir(sk_fd):
+    """Descriptor for plugin-config-data, or None when it cannot be made safe.
+
+    Both plugin configs land here, in a directory uid 1000 owns, so the type
+    check and the mkdir live in one place. Two copies of this could drift, and
+    the half that drifted would write a config through whatever was planted at
+    that name.
+    """
     if not clear_unexpected(sk_fd, "plugin-config-data", want_dir=True):
         warn("cannot make plugin-config-data safe to write; skipping")
-        return
+        return None
     try:
         os.mkdir("plugin-config-data", 0o755, dir_fd=sk_fd)
     except FileExistsError:
         pass
+    return open_dir("plugin-config-data", parent_fd=sk_fd)
 
-    cfg_fd = open_dir("plugin-config-data", parent_fd=sk_fd)
+
+def configure_questdb(sk_fd):
+    """Point the history provider at the QuestDB app. Never fatal.
+
+    Written once and then left alone, unlike the InfluxDB config below. That one
+    is rewritten every boot because a rotating token has to reach it; this one
+    carries no secret, so a rewrite could only ever discard what the operator
+    changed -- path filters, sampling rates, retention. It would also re-arm the
+    one-off default-provider promotion, taking back a default the operator had
+    since moved somewhere else.
+
+    Host and ports are written explicitly even though they are the plugin's
+    defaults. A rebase onto a new upstream may move those defaults, and a
+    device's configuration should not follow silently.
+    """
+    cfg_fd = open_plugin_config_dir(sk_fd)
+    if cfg_fd is None:
+        return
+    try:
+        name = "signalk-questdb-history-provider.json"
+        if not clear_unexpected(cfg_fd, name):
+            warn("cannot make %s safe to write; skipping" % name)
+            return
+
+        converge_mode(cfg_fd, name)
+        try:
+            fd = open_regular(cfg_fd, name)
+        except FileNotFoundError:
+            pass
+        else:
+            os.close(fd)
+            return
+
+        if create_guarded(cfg_fd, name, json.dumps({
+            "enabled": True,
+            "configuration": {
+                "managedContainer": False,
+                "questdbHost": "127.0.0.1",
+                "questdbHttpPort": 9000,
+                "questdbIlpPort": 9009,
+                # Claimed once by the plugin, which clears this flag itself the
+                # moment the server confirms. Writing settings.json here instead
+                # would name a provider before it has registered, and Signal K
+                # raises a warn notification for a configured provider that
+                # stays missing.
+                "promoteToDefaultProvider": True,
+            },
+        }, indent=2) + "\n"):
+            print("QuestDB history provider configured")
+    finally:
+        os.close(cfg_fd)
+
+
+def configure_influx(sk_fd, token):
+    """Point the logging plugin at InfluxDB. Never fatal; see the call site."""
+    cfg_fd = open_plugin_config_dir(sk_fd)
+    if cfg_fd is None:
+        return
     try:
         name = "signalk-to-influxdb2.json"
         if not clear_unexpected(cfg_fd, name):
@@ -488,6 +560,12 @@ if INFLUX_TOKEN:
         configure_influx(sk_fd, INFLUX_TOKEN)
     except Exception as exc:
         warn("InfluxDB plugin config not updated: %s" % exc)
+
+if QUESTDB_INSTALLED:
+    try:
+        configure_questdb(sk_fd)
+    except Exception as exc:
+        warn("QuestDB plugin config not written: %s" % exc)
 
 os.close(sk_fd)
 os.close(root_fd)
