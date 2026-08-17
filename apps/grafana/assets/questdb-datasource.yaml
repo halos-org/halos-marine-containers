@@ -1,0 +1,32 @@
+apiVersion: 1
+
+# QuestDB over its PostgreSQL wire protocol, which Grafana's core postgres
+# datasource speaks -- no plugin to install, so nothing here needs the network
+# at container start.
+#
+# The QuestDB history provider plugin in Signal K writes three tables, all with
+# `ts` as the designated timestamp and `context`/`source` symbols: `signalk`
+# (numeric values), `signalk_str` (text) and `signalk_position` (lat/lon).
+#
+# These credentials are QuestDB's open-source defaults, identical on every
+# device. Its community build has no user management, so there is nothing
+# per-device to provision and no secret to keep out of the package -- the whole
+# gate is that the port is published on loopback and carries no Traefik router.
+# apps/questdb/docker-compose.yml states what that does and does not bound.
+#
+# postgresVersion is what QuestDB answers with over the wire: `select version()`
+# returns "PostgreSQL 12.3, compiled by Visual C++ build 1914, 64-bit, QuestDB".
+datasources:
+  - name: QuestDB
+    type: postgres
+    access: proxy
+    url: questdb:8812
+    user: admin
+    database: qdb
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1200
+      timescaledb: false
+    secureJsonData:
+      password: quest
+    editable: true

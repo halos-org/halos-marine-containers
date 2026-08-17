@@ -224,6 +224,36 @@ volumes under a temp directory, and never touches `/etc` or a device. Run it
 after changing `apps/influxdb/prestart.sh`; it is not part of CI because it
 pulls and boots the InfluxDB image.
 
+### Grafana Prestart Hook
+
+Grafana `recommends` both datastores rather than depending on them, so
+`apps/grafana/prestart.sh` decides at every start which datasources exist:
+`assets/influxdb-datasource.yaml` and `assets/questdb-datasource.yaml` are
+copied into the provisioning directory when their app is installed and taken out
+when it is not. It runs in CI, via `tests/test_grafana_prestart.py`:
+
+```bash
+./tools/test-grafana-prestart.sh
+```
+
+**"Installed" is the app's compose file, never its env file.** `apt remove`
+leaves the package in `deinstall ok config-files`, where
+`/etc/container-apps/<app>/env` and the systemd unit both survive and only
+`apt purge` takes them; `/var/lib/container-apps/<app>/docker-compose.yml` is
+payload and goes on either. InfluxDB's env file is still read, because the token
+in it is what the datasource refers to as `$__env{INFLUXDB_TOKEN}` — so the two
+files are checked for different things and both are needed.
+
+QuestDB needs no such value. Its open-source build has no user management, so
+the pg wire credentials are fixed upstream defaults, identical on every device,
+and the asset is complete on its own.
+
+**Taking the file out does not delete the datasource.** Grafana removes a
+provisioned datasource only on an explicit `deleteDatasources` stanza, so after
+an uninstall the datasource stays in Grafana's own database, visible and
+failing, until an operator deletes it. The hook stops re-provisioning it and
+nothing more.
+
 ### Signal K Prestart Hook
 
 `apps/signalk-server/prestart.sh` has a bash harness that stubs chown, so it
