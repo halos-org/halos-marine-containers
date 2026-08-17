@@ -1,12 +1,13 @@
 name: Grafana
 app_id: grafana
-version: 13.1.3-1
+version: 13.1.3-2
 upstream_version: 13.1.3
 description: Data visualization and monitoring platform
 long_description: |
   Grafana is an open-source platform for monitoring and observability. Create
-  beautiful dashboards to visualize marine data from InfluxDB, Signal K, and
-  other data sources.
+  beautiful dashboards to visualize marine data recorded by QuestDB and
+  InfluxDB. A datasource for each is provisioned automatically when that app
+  is installed, so a fresh dashboard has something to query.
 
   Features:
   - Rich visualization options (graphs, gauges, maps)
@@ -31,6 +32,7 @@ depends:
   - docker.io (>= 20.10) | docker-ce (>= 20.10)
 recommends:
   - marine-influxdb-container
+  - marine-questdb-container
 web_ui:
   enabled: true
   path: /
