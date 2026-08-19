@@ -316,11 +316,10 @@ EOF
     bad "  operator edits are intact" "$(cat "${QDB_CFG}")"
 teardown
 
-# The default history provider. Signal K serves history from whichever provider
-# registered first when settings name none, and signalk-to-influxdb2 is baked
-# into the same image -- so on a device with both apps it is plugin load order
-# that decides, and InfluxDB wins it. settings.json is the only place the server
-# takes this from; the plugin's own route for it is admin-authenticated.
+# The default history provider. Installing the QuestDB app must not take the
+# slot from whatever already serves history on that device, so the hook only
+# clears a key naming an app that is gone. settings.json is the only place the
+# server takes this from; the plugin's own route for it is admin-authenticated.
 SETTINGS='{"interfaces":{"nmea-tcp":false},"vessel":{"uuid":"urn:mrn:signalk:uuid:test"}}'
 default_provider() {  # echoes the configured id, or the empty string
     python3 -c 'import json,sys; print((json.load(open(sys.argv[1])).get("historyApi") or {}).get("defaultProvider",""))' "$1"
@@ -330,38 +329,35 @@ setup
 questdb_available
 printf '%s\n' "${SETTINGS}" > "${SK}/settings.json"
 chmod 644 "${SK}/settings.json"
-check "questdb becomes the default history provider" "$(run_hook)" "0"
-check "  named in settings.json" \
-    "$(default_provider "${SK}/settings.json")" "signalk-questdb-history-provider"
+check "installing questdb does not claim the default" "$(run_hook)" "0"
+check "  no default is named" "$(default_provider "${SK}/settings.json")" ""
 check "  the file keeps its mode" "$(mode "${SK}/settings.json")" "644"
-python3 - "${SK}/settings.json" <<'EOF' && ok "  nothing else in the document changes" ||
+python3 - "${SK}/settings.json" <<'EOF' && ok "  the document is untouched" ||
 import json, sys
 s = json.load(open(sys.argv[1]))
 assert s["vessel"]["uuid"] == "urn:mrn:signalk:uuid:test", s
 assert s["interfaces"] == {"nmea-tcp": False}, s
+assert "historyApi" not in s, s
 EOF
-    bad "  nothing else in the document changes" "$(cat "${SK}/settings.json")"
+    bad "  the document is untouched" "$(cat "${SK}/settings.json")"
 teardown
 
-# The operator's choice outranks ours, and it is a plain key with no backup file
-# to record that we already ran -- so absence of the key is the only signal that
-# nobody has chosen. Rewriting it every boot would take the choice back.
+# An operator who chose QuestDB keeps it for as long as the app is there.
+setup
+questdb_available
+printf '%s\n' '{"historyApi":{"defaultProvider":"signalk-questdb-history-provider"}}' > "${SK}/settings.json"
+check "a chosen questdb default survives a start" "$(run_hook)" "0"
+check "  still QuestDB" \
+    "$(default_provider "${SK}/settings.json")" "signalk-questdb-history-provider"
+teardown
+
+# An operator who chose InfluxDB keeps it, QuestDB app or no QuestDB app.
 setup
 questdb_available
 printf '%s\n' '{"historyApi":{"defaultProvider":"signalk-to-influxdb2"}}' > "${SK}/settings.json"
-check "a chosen default history provider is left alone" "$(run_hook)" "0"
+check "another provider is left alone with questdb installed" "$(run_hook)" "0"
 check "  still InfluxDB" \
     "$(default_provider "${SK}/settings.json")" "signalk-to-influxdb2"
-teardown
-
-# Presence, not truthiness. An empty value is how the server reads "no default,
-# use whichever registers first" -- a choice like any other, and one a truthiness
-# test would overwrite on every boot.
-setup
-questdb_available
-printf '%s\n' '{"historyApi":{"defaultProvider":""}}' > "${SK}/settings.json"
-check "an emptied default history provider is left alone" "$(run_hook)" "0"
-check "  still empty" "$(default_provider "${SK}/settings.json")" ""
 teardown
 
 # Nothing here knows what a non-object historyApi was meant to be, and replacing

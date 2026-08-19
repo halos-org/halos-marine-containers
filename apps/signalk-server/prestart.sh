@@ -359,71 +359,48 @@ def configure_questdb(sk_fd):
         os.close(cfg_fd)
 
 
-def set_default_history_provider(sk_fd, installed):
-    """Keep settings.json's default history provider in step with the app.
+def clear_gone_default_history_provider(sk_fd, installed):
+    """Drop settings.json's default history provider when its app is gone.
 
-    When settings name no default, Signal K serves history from whichever
-    provider registered first. signalk-to-influxdb2 is baked into the same image,
-    so that is decided by plugin load order -- and InfluxDB wins it on a device
-    with both installed, which is the configuration we ship.
+    Only that. Installing the QuestDB app does not make it the default, because
+    naming it would take the slot from whatever is already serving history on
+    that device -- and on a device that has run InfluxDB since before QuestDB
+    existed, the key is absent not because nobody chose but because there was
+    never anything to choose between. The operator picks, in the admin UI under
+    Apps & Plugins -> Configuration, and Signal K records the first provider to
+    register on a device that has never had one (SignalK/signalk-server#2981).
 
-    settings.json is the only place the server takes this from. The plugin cannot
-    set it: POST /signalk/v2/* wants write-level credentials, and a plugin
-    calling its own server over loopback carries none, so it gets 401 on every
-    boot of a device with security enabled -- which is every HaLOS device.
+    A key naming a gone provider is a standing alarm rather than a fallback: the
+    first history request after the app is removed raises a warn notification at
+    notifications.server.history.defaultProvider ("Configured default history
+    provider ... is not available"), and the server clears it only when that
+    provider registers again, which for an uninstalled app is never. Verified on
+    a device. Hence this one direction.
 
-    Two directions, both narrow:
-
-    * The app is installed and no default is named -- name QuestDB. Only when
-      the key is absent, so an operator who moves the default to InfluxDB
-      keeps it.
-    * The app is gone and the key still names QuestDB -- drop the key. Left
-      behind it costs a standing alarm: the first history request after that
-      raises a warn notification at notifications.server.history.defaultProvider
-      ("Configured default history provider ... is not available"), and the
-      server clears it only when that provider registers again, which for an
-      uninstalled app is never. Verified on a device.
-
-    Any other value is the operator's and is never touched, including the empty
-    string -- that is how the server reads "no default, use the fallback".
+    Exact match only. Any other value is the operator's, and the only value this
+    removes is one naming the app that just went away.
     """
+    if installed:
+        return
     read = read_settings(sk_fd)
     if read is None:
         return
     settings, mode, _ = read
 
     history = settings.get("historyApi")
-    if history is None:
-        history = {}
-    elif not isinstance(history, dict):
-        # Malformed, and root is not the process to decide what it meant.
-        warn("historyApi is a %s, not an object; leaving it alone"
-             % type(history).__name__)
+    if not isinstance(history, dict):
+        # Absent, or malformed and not root's to interpret.
         return
 
-    # Key presence, not truthiness, on the write side: an empty value is a
-    # choice, and taking it back on every boot is the sticky rewrite this whole
-    # approach exists to avoid.
-    present = "defaultProvider" in history
-    if installed:
-        if present:
-            return
-        history["defaultProvider"] = QUESTDB_PLUGIN_ID
-        message = "QuestDB set as the default history provider"
-    else:
-        # Exact match only. An operator who chose InfluxDB keeps it whether or
-        # not QuestDB is installed; the only value this may remove is the one
-        # this hook wrote.
-        if history.get("defaultProvider") != QUESTDB_PLUGIN_ID:
-            return
-        del history["defaultProvider"]
-        message = "QuestDB is gone; cleared it as the default history provider"
+    if history.get("defaultProvider") != QUESTDB_PLUGIN_ID:
+        return
+    del history["defaultProvider"]
 
     settings["historyApi"] = history
     if write_settings(sk_fd, settings, mode):
-        print(message)
+        print("QuestDB is gone; cleared it as the default history provider")
     else:
-        warn("could not update the default history provider")
+        warn("could not clear the default history provider")
 
 
 def configure_influx(sk_fd, token):
@@ -495,9 +472,9 @@ def configure_influx(sk_fd, token):
 #
 # What does NOT go with it: read_settings, write_settings, the `mode` parameter
 # they need on create_exclusive and create_guarded, and the settings.json
-# hand_over. set_default_history_provider writes the file too, and unlike this it
-# has no expiry -- so removing this leaves settings.json a path the hook still
-# writes, on every device that has the QuestDB app.
+# hand_over. clear_gone_default_history_provider writes the file too, and unlike
+# this it has no expiry -- so removing this leaves settings.json a path the hook
+# still writes, on every device the QuestDB app was removed from.
 def migrate_gpsd_liner(sk_fd):
     """Splice the missing Liner into a gpsd connection seeded before the fix.
 
@@ -661,12 +638,11 @@ if QUESTDB_INSTALLED:
 # Unconditional, unlike the plugin config above: this runs to clear the key on
 # a device the app was removed from, which is a state only reachable with
 # QUESTDB_INSTALLED false. Separate from the config for the rest -- they fail
-# for different reasons, and the plugin still records when only the default is
-# missing.
+# for different reasons, and history still works when only a stale key remains.
 try:
-    set_default_history_provider(sk_fd, QUESTDB_INSTALLED)
+    clear_gone_default_history_provider(sk_fd, QUESTDB_INSTALLED)
 except Exception as exc:
-    warn("default history provider not updated: %s" % exc)
+    warn("default history provider not cleared: %s" % exc)
 
 os.close(sk_fd)
 os.close(root_fd)
