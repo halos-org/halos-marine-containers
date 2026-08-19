@@ -3,7 +3,7 @@ services:
     # Daily channel, not stable: upstream last rebuilt avnav-stable on
     # 2025-10-28, and the ochartsng it bundles is rejected by the o-charts
     # shop. Move back if upstream resumes stable builds.
-    image: xfreex/avnav-daily:20260709
+    image: stangsdal/avnav-daily:20260709-https9
     container_name: avnav
     init: true
     restart: unless-stopped
@@ -32,5 +32,20 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
-    user: "1000:1000"
+    # O-ChartsNG must access the SG-Lock license dongle at /dev/hidraw0,
+    # which is root:root with mode 0600 on HALPI2.
+    user: "0:0"
     privileged: true
+    labels:
+      # O-ChartsNG serves its UI on provider port 8083. Expose it through the
+      # existing authenticated HTTPS entrypoint so Chromium does not block it
+      # as mixed active content.
+      traefik.http.routers.avnav-ocharts.rule: "PathPrefix(`/ocharts/`)"
+      traefik.http.routers.avnav-secure.service: "avnav"
+      traefik.http.routers.avnav-ocharts.entrypoints: "app-4431"
+      traefik.http.routers.avnav-ocharts.tls: "true"
+      traefik.http.routers.avnav-ocharts.priority: "3"
+      traefik.http.routers.avnav-ocharts.middlewares: "strip-hsts@file,authelia@file,avnav-ocharts-strip"
+      traefik.http.routers.avnav-ocharts.service: "avnav-ocharts"
+      traefik.http.middlewares.avnav-ocharts-strip.stripprefix.prefixes: "/ocharts"
+      traefik.http.services.avnav-ocharts.loadbalancer.server.port: "8083"

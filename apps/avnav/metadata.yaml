@@ -1,6 +1,6 @@
 name: AvNav
 app_id: avnav
-version: 20260709-1
+version: 20260709-12
 upstream_version: "20260709"
 description: Touch-optimized chart plotter for sailing and motor yachts
 long_description: |
@@ -36,7 +36,7 @@ depends:
   - docker.io (>= 20.10) | docker-ce (>= 20.10)
 web_ui:
   enabled: true
-  path: /
+  path: /viewer/avnav_viewer.html
   port: 8080  # Internal AvNav HTTP port (Traefik routes here)
   protocol: http
   visible: true
