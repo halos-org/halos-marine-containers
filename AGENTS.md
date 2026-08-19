@@ -437,9 +437,16 @@ renewing it by default.
 ### The default history provider
 
 `settings.json`'s `historyApi.defaultProvider` is the only place the server takes
-this from. The prestart writes it when the QuestDB app is installed and the key
-is absent, and removes it when the app is gone and the key still names QuestDB.
-Every other value is the operator's and is never touched.
+this from. The prestart removes it when the QuestDB app is gone and the key still
+names QuestDB, and does nothing else to it. Every other value, and the absence of
+the key, is the operator's.
+
+**Installing an app must not take the slot from what is already serving.** The
+hook used to name QuestDB whenever the key was absent, which reads "nobody has
+chosen" — but on a device that has logged to InfluxDB since before QuestDB
+existed, the key is absent because there was never anything to choose between.
+Installing the QuestDB app would then move history off InfluxDB silently, at the
+next start, which is the same harm as the plugin claiming the slot for itself.
 
 **The plugin cannot set it, and trying looks like it works.** Signal K's route
 for it, `POST /signalk/v2/api/history/_providers/_default/:id`, is covered by
@@ -450,11 +457,16 @@ device with security enabled — which is every HaLOS device. The plugin did
 exactly this until the fix, logging one 401 per boot forever while nothing
 downstream noticed.
 
-**Doing nothing is not neutral.** With no configured default, the server serves
-history from whichever provider registered first, which is plugin load order.
-`signalk-to-influxdb2` is baked into the same image, so on a device with both apps
-it wins — confirmed on hardware: `_providers` reported InfluxDB `isDefault: true`
-and QuestDB `false`, which is the opposite of what the QuestDB app is for.
+**So the operator chooses, in the admin UI under Apps & Plugins ->
+Configuration.** Two upstream changes make that workable and are worth tracking:
+SignalK/signalk-server#2980 asks for the selector to stay visible instead of
+hiding below two registered providers, and SignalK/signalk-server#2985 has the
+server record the first provider to register on a device that has never had one,
+so a device that starts with QuestDB alone keeps it when InfluxDB arrives later.
+Until they land, a device with both apps and no configured key serves history
+from whichever provider registered first — `signalk-to-influxdb2`, since it
+registers inside `start()` while the QuestDB provider registers only once its
+database answers.
 
 **A key naming a gone provider is a standing alarm, not a fallback.** This was
 first written the other way, from a device test that never exercised the path.
@@ -464,14 +476,22 @@ notification tree before issuing one shows nothing. Issue one and
 `notifications.server.history.defaultProvider` reports `state: "warn"`,
 "Configured default history provider ... is not available, using ... instead".
 `warnedUnavailable` latches, and only `notifyConfiguredAvailable()` clears it —
-when the provider registers, which for an uninstalled app is never. Hence the
-removal branch. It matches the exact value only, so an operator who chose
+when the provider registers, which for an uninstalled app is never. Hence the one
+branch that remains. It matches the exact value only, so an operator who chose
 InfluxDB keeps it whether or not QuestDB is installed.
+
+**An empty string is not an opt-out.** The hook used to leave `""` alone on the
+grounds that it meant "no default, use the fallback". The server disagreed with
+itself about that: two of its four consumers read `""` as no choice while the
+grace window and the state event read it as a provider that had gone missing, so
+the admin UI reported a default named `""` as unavailable on a healthy server.
+SignalK/signalk-server#2985 makes `""` read as absent everywhere. No supported
+path writes one, so it only ever came from a hand-edited file.
 
 **It needs 2.31.0 or newer.** Persistence landed in that release (`feat: persist
 default History API provider, selectable in Admin UI`). On 2.30.0 the key is read
-by nothing and the write is inert — the failure is silent in both directions, so
-a downgrade of the pinned image below 2.31.0 takes this feature with it.
+by nothing and the removal is inert — the failure is silent, so a downgrade of
+the pinned image below 2.31.0 takes this with it.
 
 ### Signal K Plugin Set
 
