@@ -348,7 +348,6 @@ def configure_questdb(sk_fd):
         if create_guarded(cfg_fd, name, json.dumps({
             "enabled": True,
             "configuration": {
-                "managedContainer": False,
                 "questdbHost": "127.0.0.1",
                 "questdbHttpPort": 9000,
                 "questdbIlpPort": 9009,
