@@ -269,19 +269,21 @@ questdb_available
 check "questdb config is written when the app is installed" "$(run_hook)" "0"
 QDB_CFG="${SK}/plugin-config-data/signalk-questdb-history-provider.json"
 check "  at 0600" "$(mode "${QDB_CFG}")" "600"
-python3 - "${QDB_CFG}" <<'EOF' && ok "  external mode, loopback, no promotion flag" ||
+python3 - "${QDB_CFG}" <<'EOF' && ok "  loopback, no managed container, no promotion flag" ||
 import json, sys
 c = json.load(open(sys.argv[1]))
 cfg = c["configuration"]
 assert c["enabled"] is True, c
-assert cfg["managedContainer"] is False, cfg
 assert cfg["questdbHost"] == "127.0.0.1", cfg
+# The plugin dropped this setting in 2.0.0 and its schema no longer defines
+# it, so writing it would seed every new device with a dead key.
+assert "managedContainer" not in cfg, cfg
 # The plugin cannot promote itself: the route is admin-authenticated and it
 # calls its own server with no credentials, so arming this only buys a 401 in
 # the log on every boot. settings.json carries the default instead.
 assert "promoteToDefaultProvider" not in cfg, cfg
 EOF
-    bad "  external mode, loopback, no promotion flag" "$(cat "${QDB_CFG}")"
+    bad "  loopback, no managed container, no promotion flag" "$(cat "${QDB_CFG}")"
 teardown
 
 setup
