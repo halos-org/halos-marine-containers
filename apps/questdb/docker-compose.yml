@@ -30,21 +30,15 @@ services:
       - QDB_TELEMETRY_ENABLED=false
       - QDB_HTTP_ENABLED=true
       - QDB_LINE_TCP_ENABLED=true
-      # nosync is QuestDB's default: nothing on the ingest path is fsynced and
-      # durability is left to the OS page cache. What that risks is a commit
-      # record reaching disk while the partition data it describes does not,
-      # which costs the whole table -- QuestDB fails while OPENING the
-      # partition, before any RESUME WAL variant gets to run.
-      #
-      # It is the right default here anyway, because reaching that state needs
-      # an unclean shutdown and HALPI2 has supercapacitor-backed power. Loss of
-      # supply is the common cause on a boat and the supercaps carry the board
-      # through an orderly shutdown instead. sync costs about 1.3% of a CPU
-      # core at boat data rates, all of it in the WAL apply threads, to insure
-      # against the residual causes -- a kernel panic, a watchdog reset, a
-      # storage device pulled live. On hardware without that power path, set
-      # cairo.commit.mode=sync; the plugin's tuning notes carry the case.
-      - QDB_CAIRO_COMMIT_MODE=nosync
+      # nosync is QuestDB's own default and restated here so the setting has a
+      # value to override. What it risks is a commit record reaching disk while
+      # the partition data it describes does not, which costs the whole table:
+      # QuestDB fails while OPENING the partition, before any RESUME WAL
+      # variant gets to run. Reaching that state needs an unclean shutdown, and
+      # HALPI2 has supercapacitor-backed power -- loss of supply is the common
+      # cause on a boat and the supercaps carry the board through an orderly
+      # shutdown instead. Hardware without that power path wants sync.
+      - QDB_CAIRO_COMMIT_MODE=${QUESTDB_COMMIT_MODE:-nosync}
       # One worker per pool: this runs beside Signal K, InfluxDB, Grafana and
       # the web stack on a Pi-class board, and QuestDB sizes most pools from
       # the core count instead. Every pool that starts threads here needs its

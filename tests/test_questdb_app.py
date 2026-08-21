@@ -54,7 +54,7 @@ def test_every_published_port_is_loopback_only():
         )
 
 
-def test_commit_mode_is_set_explicitly():
+def test_commit_mode_is_overridable():
     """The choice between nosync and sync is about the host's power path.
 
     nosync leaves durability to the OS page cache, so an unclean shutdown can
@@ -66,12 +66,23 @@ def test_commit_mode_is_set_explicitly():
 
     HALPI2 carries supercapacitors, so loss of supply becomes an orderly
     shutdown and the remaining causes are a kernel panic, a watchdog reset or a
-    device pulled live. nosync is the call for that hardware. This asserts the
-    value is one of the two QuestDB accepts rather than pinning which -- a typo
-    here is silently ignored like any other unknown value, and a board without
-    a supercapacitor path wants the other one.
+    device pulled live. nosync is the call for that hardware and the wrong one
+    for a board that simply stops when the supply does, so the value has to
+    stay reachable from the app's config rather than being pinned in payload
+    the next upgrade overwrites.
     """
-    assert _environment().get("QDB_CAIRO_COMMIT_MODE") in ("nosync", "sync")
+    mode = _environment().get("QDB_CAIRO_COMMIT_MODE")
+    assert mode == "${QUESTDB_COMMIT_MODE:-nosync}", (
+        "the commit mode must interpolate a config field; a literal here "
+        "cannot be changed through /etc/container-apps/questdb/env"
+    )
+
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
+    assert fields["QUESTDB_COMMIT_MODE"]["default"] in ("nosync", "sync"), (
+        "QuestDB ignores an unknown value here and runs its own default"
+    )
 
 
 def test_no_worker_setting_carries_the_cairo_prefix():

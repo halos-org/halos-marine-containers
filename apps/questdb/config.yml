@@ -16,6 +16,24 @@ groups:
           alone. The default suits a device running the full marine stack;
           raise it on hardware with memory to spare.
 
+  - id: durability
+    label: Durability
+    description: What an unclean shutdown costs
+    fields:
+      - id: QUESTDB_COMMIT_MODE
+        label: Commit Mode
+        type: string
+        default: nosync
+        required: true
+        description: >-
+          How QuestDB flushes a commit to disk. nosync is QuestDB's default and
+          leaves durability to the OS page cache, which an unclean shutdown can
+          cost you the whole table for. HALPI2 rides a supply cut through to an
+          orderly shutdown on its supercapacitors, so nosync is the right
+          default here. Set sync on hardware that simply stops when the supply
+          does; it fsyncs every commit and costs about 1.3% of a CPU core at
+          boat data rates.
+
   - id: diagnostics
     label: Diagnostics
     description: Logging verbosity for field troubleshooting
