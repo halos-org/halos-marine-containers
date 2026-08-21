@@ -43,8 +43,9 @@ services:
       - QDB_CAIRO_COMMIT_MODE=sync
       # Single workers throughout: this runs beside Signal K, InfluxDB, Grafana
       # and the web stack on a Pi-class board, and QuestDB's defaults size
-      # themselves to the core count.
-      - QDB_CAIRO_WAL_APPLY_WORKER_COUNT=1
+      # themselves to the core count. QDB_SHARED_WORKER_COUNT covers all three
+      # shared pools (network, query, write), so they need no separate setting.
+      - QDB_WAL_APPLY_WORKER_COUNT=1
       - QDB_SHARED_WORKER_COUNT=1
       - QDB_LINE_TCP_WRITER_WORKER_COUNT=1
       - QDB_CAIRO_O3_COLUMN_MEMORY_SIZE=262144
