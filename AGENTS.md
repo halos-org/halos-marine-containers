@@ -563,6 +563,35 @@ systemctl start marine-signalk-server-container.service
 This is not specific to Signal K: every container app the generator emits pins an
 exact tag and fetches it the same way. Tracked in halos-org/container-packaging-tools#241.
 
+### QuestDB ignores a setting it does not recognise
+
+QuestDB validates `server.conf` strictly -- an unknown key there aborts startup
+with `Invalid settings (not recognized, probable typos)` and the key named. It
+never validates the environment. A misspelled `QDB_*` variable is dropped in
+silence: the container starts, passes its healthcheck, records, answers queries,
+and runs the default the variable was meant to replace.
+
+`QDB_CAIRO_WAL_APPLY_WORKER_COUNT` shipped that way from the app's first commit.
+The property is `wal.apply.worker.count` and takes no `cairo.` prefix, so the
+pool kept its core-count default of two workers while the compose file, its
+comment and the plugin's tuning doc all said one. Nothing in a log, a status or
+a test disagreed; it took counting threads in the running JVM to see it.
+
+So a new `QDB_*` variable is not verified by a container that comes up green.
+Either check the running process (thread names for a pool setting, `SHOW
+PARAMETERS` for `value_source`), or put the dotted form in `server.conf` on a
+scratch device first and let QuestDB reject it for you. `tests/test_questdb_app.py`
+pins the names that are known to have been wrong, which catches a regression but
+not a newly invented misspelling.
+
+The pool settings have no global default. Both the worker count and the sleep
+threshold are per pool, and QuestDB 10 has more pools than are obvious --
+including `view.compiler`, `mat.view.refresh` and `live.view.refresh`, which
+start threads whether or not anything uses the feature. `shared.worker.count`
+and `shared.worker.sleep.threshold` are the exception, feeding the network,
+query and write pools. `line.tcp.io.worker.count` reads as an exception and is
+not: zero means "dedicated pool sized by cores", not "use the shared pool".
+
 ### Authentication Negative Tests
 
 For testing that invalid authentication attempts are properly rejected (malformed tokens, expired tokens, OIDC callback validation, etc.), use the generic test script in the signalk-server repository:

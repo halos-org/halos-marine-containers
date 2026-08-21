@@ -66,6 +66,86 @@ def test_commit_mode_is_sync():
     assert _environment().get("QDB_CAIRO_COMMIT_MODE") == "sync"
 
 
+def test_no_worker_setting_carries_the_cairo_prefix():
+    """QuestDB ignores an environment variable whose name it does not know.
+
+    It validates server.conf strictly and refuses to start on an unrecognised
+    key there, but the environment is never checked: a misnamed QDB_ variable
+    leaves the container healthy, recording, answering queries, and running the
+    default the setting was meant to replace. QDB_CAIRO_WAL_APPLY_WORKER_COUNT
+    shipped that way from this app's first commit -- the property is
+    wal.apply.worker.count, with no cairo. prefix -- and nothing surfaced it
+    until someone counted threads on a device.
+
+    So the wrong name is the thing to assert against, not the right one.
+    """
+    for key in _environment():
+        assert not key.startswith("QDB_CAIRO_WAL_APPLY_"), (
+            f"{key} is not a QuestDB property: the wal.apply.* pool takes no "
+            "cairo. prefix, and QuestDB ignores the variable without a word"
+        )
+
+
+def test_every_thread_pool_that_starts_workers_is_sized_and_slept():
+    """A pool left out of either list keeps QuestDB's defaults.
+
+    Both defaults are wrong for this deployment. The worker count comes from
+    the core count, so a 4-core board gets two threads for pools this stack
+    never exercises; the sleep threshold is 10000 poll cycles, which burns CPU
+    whether or not rows arrive. Neither has a global override -- the settings
+    are per pool, and a pool nobody thought of is a pool still spinning.
+
+    QDB_SHARED_WORKER_COUNT is the one count covering more than its own pool:
+    the network, query and write pools each fall back to it.
+    """
+    env = _environment()
+    pools = [
+        "WAL_APPLY",
+        "LINE_TCP_IO",
+        "LINE_TCP_WRITER",
+        "VIEW_COMPILER",
+        "MAT_VIEW_REFRESH",
+        "LIVE_VIEW_REFRESH",
+    ]
+    for pool in pools:
+        assert f"QDB_{pool}_WORKER_COUNT" in env, (
+            f"the {pool} pool has no worker count, so QuestDB sizes it from "
+            "the core count"
+        )
+    for pool in pools + ["SHARED", "EXPORT"]:
+        assert env.get(f"QDB_{pool}_WORKER_SLEEP_THRESHOLD") == "100", (
+            f"the {pool} pool has no sleep threshold, so its workers spin "
+            "10000 cycles before sleeping"
+        )
+
+
+def test_log_level_is_overridable_and_keeps_critical():
+    """ERROR hides the INFO band that precedes a table suspension.
+
+    A level is a floor rather than an exact set, so ERROR still carries
+    CRITICAL and ADVISORY -- suspension and the max_map_count warning survive.
+    The WAL apply memory-pressure backoff does not, and that is the warning a
+    boat needs when recording stalls with the server healthy. The value has to
+    stay reachable from the app's config so an operator can raise it without
+    editing package payload that the next upgrade overwrites.
+
+    CRITICAL would read as merely stricter and is not: it drops the ERROR band
+    with ILP parse failures and non-tolerable apply errors in it.
+    """
+    level = _environment().get("QDB_LOG_W_STDOUT_LEVEL")
+    assert level == "${QUESTDB_LOG_LEVEL:-ERROR}", (
+        "the log level must interpolate a config field; a literal here cannot "
+        "be changed through /etc/container-apps/questdb/env"
+    )
+
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
+    assert fields["QUESTDB_LOG_LEVEL"]["default"] in ("ERROR", "INFO"), (
+        "CRITICAL drops the ERROR band, which carries ILP parse failures"
+    )
+
+
 def test_prestart_raises_max_map_count():
     """The stock limit of 65530 exhausts on a grown database.
 

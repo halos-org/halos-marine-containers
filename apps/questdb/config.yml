@@ -15,3 +15,21 @@ groups:
           sizes its heap from this, so it bounds total memory rather than heap
           alone. The default suits a device running the full marine stack;
           raise it on hardware with memory to spare.
+
+  - id: diagnostics
+    label: Diagnostics
+    description: Logging verbosity for field troubleshooting
+    fields:
+      - id: QUESTDB_LOG_LEVEL
+        label: Log Level
+        type: string
+        default: ERROR
+        required: true
+        description: >-
+          Console log level. ERROR is the default and still records table
+          suspension and ILP parse failures, because a level here is a floor
+          rather than an exact set. Set INFO when a device stops recording with
+          no obvious cause: that band carries the WAL apply memory-pressure
+          backoff that precedes a suspension. INFO costs roughly a percent of a
+          CPU core and writes several journald lines a second, so put it back to
+          ERROR afterwards.
