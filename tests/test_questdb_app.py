@@ -54,16 +54,24 @@ def test_every_published_port_is_loopback_only():
         )
 
 
-def test_commit_mode_is_sync():
-    """QuestDB's default leaves durability to the OS page cache.
+def test_commit_mode_is_set_explicitly():
+    """The choice between nosync and sync is about the host's power path.
 
-    A power cut can then land a commit record while the partition data it
-    describes is still dirty. The table claims rows that are not on disk and
-    QuestDB fails while opening the partition -- a state no RESUME WAL variant
-    repairs, because the failure happens before any transaction is read. Boats
-    lose power; this is the deployment, not an edge case.
+    nosync leaves durability to the OS page cache, so an unclean shutdown can
+    land a commit record while the partition data it describes is still dirty.
+    The table then claims rows that are not on disk and QuestDB fails while
+    opening the partition -- a state no RESUME WAL variant repairs, because the
+    failure happens before any transaction is read. It costs the whole table,
+    not the last few seconds.
+
+    HALPI2 carries supercapacitors, so loss of supply becomes an orderly
+    shutdown and the remaining causes are a kernel panic, a watchdog reset or a
+    device pulled live. nosync is the call for that hardware. This asserts the
+    value is one of the two QuestDB accepts rather than pinning which -- a typo
+    here is silently ignored like any other unknown value, and a board without
+    a supercapacitor path wants the other one.
     """
-    assert _environment().get("QDB_CAIRO_COMMIT_MODE") == "sync"
+    assert _environment().get("QDB_CAIRO_COMMIT_MODE") in ("nosync", "sync")
 
 
 def test_no_worker_setting_carries_the_cairo_prefix():

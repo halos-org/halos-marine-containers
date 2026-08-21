@@ -30,17 +30,21 @@ services:
       - QDB_TELEMETRY_ENABLED=false
       - QDB_HTTP_ENABLED=true
       - QDB_LINE_TCP_ENABLED=true
-      # QuestDB's default commit mode, nosync, fsyncs nothing on the ingest
-      # path and leaves durability to the OS page cache. A power cut can then
-      # land a commit record while the partition data it describes is still
-      # dirty: the table claims rows that are not on disk, and QuestDB fails
-      # while OPENING that partition. No RESUME WAL variant repairs it -- both
-      # remedies run after the open -- so it costs the whole table. With sync,
-      # partition columns are fsynced before the commit record is written and
-      # WAL segments are fsynced on commit, so the stored state can never claim
-      # data it does not have. Writes are already batched by the plugin's
-      # commit interval, so the cost at boat data rates is negligible.
-      - QDB_CAIRO_COMMIT_MODE=sync
+      # nosync is QuestDB's default: nothing on the ingest path is fsynced and
+      # durability is left to the OS page cache. What that risks is a commit
+      # record reaching disk while the partition data it describes does not,
+      # which costs the whole table -- QuestDB fails while OPENING the
+      # partition, before any RESUME WAL variant gets to run.
+      #
+      # It is the right default here anyway, because reaching that state needs
+      # an unclean shutdown and HALPI2 has supercapacitor-backed power. Loss of
+      # supply is the common cause on a boat and the supercaps carry the board
+      # through an orderly shutdown instead. sync costs about 1.3% of a CPU
+      # core at boat data rates, all of it in the WAL apply threads, to insure
+      # against the residual causes -- a kernel panic, a watchdog reset, a
+      # storage device pulled live. On hardware without that power path, set
+      # cairo.commit.mode=sync; the plugin's tuning notes carry the case.
+      - QDB_CAIRO_COMMIT_MODE=nosync
       # One worker per pool: this runs beside Signal K, InfluxDB, Grafana and
       # the web stack on a Pi-class board, and QuestDB sizes most pools from
       # the core count instead. Every pool that starts threads here needs its
