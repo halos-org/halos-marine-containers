@@ -22,7 +22,10 @@ groups:
     fields:
       - id: QUESTDB_COMMIT_MODE
         label: Commit Mode
-        type: string
+        type: enum
+        options:
+          - nosync
+          - sync
         default: nosync
         required: true
         description: >-
@@ -40,7 +43,11 @@ groups:
     fields:
       - id: QUESTDB_LOG_LEVEL
         label: Log Level
-        type: string
+        type: enum
+        options:
+          - ERROR
+          - INFO
+          - DEBUG
         default: ERROR
         required: true
         description: >-
@@ -50,4 +57,6 @@ groups:
           no obvious cause: that band carries the WAL apply memory-pressure
           backoff that precedes a suspension. INFO costs roughly a percent of a
           CPU core and writes several journald lines a second, so put it back to
-          ERROR afterwards.
+          ERROR afterwards. QuestDB also accepts CRITICAL, which is not offered
+          here because it drops the ERROR band that ILP parse failures arrive
+          in.

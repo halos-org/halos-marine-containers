@@ -80,8 +80,12 @@ def test_commit_mode_is_overridable():
     with open(APP_DIR / "config.yml") as f:
         config = yaml.safe_load(f)
     fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
-    assert fields["QUESTDB_COMMIT_MODE"]["default"] in ("nosync", "sync"), (
-        "QuestDB ignores an unknown value here and runs its own default"
+    assert fields["QUESTDB_COMMIT_MODE"]["default"] == "nosync", (
+        "HALPI2 is the hardware this ships on and sync buys it nothing"
+    )
+    assert fields["QUESTDB_COMMIT_MODE"]["options"] == ["nosync", "sync"], (
+        "QuestDB maps an unrecognised value back to nosync without a word, so "
+        "a typed field would silently drop a requested sync"
     )
 
 
@@ -160,8 +164,12 @@ def test_log_level_is_overridable_and_keeps_critical():
     with open(APP_DIR / "config.yml") as f:
         config = yaml.safe_load(f)
     fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
-    assert fields["QUESTDB_LOG_LEVEL"]["default"] in ("ERROR", "INFO"), (
-        "CRITICAL drops the ERROR band, which carries ILP parse failures"
+    assert fields["QUESTDB_LOG_LEVEL"]["default"] == "ERROR", (
+        "INFO as the shipped default is the cost this app was tuned to remove"
+    )
+    assert "CRITICAL" not in fields["QUESTDB_LOG_LEVEL"]["options"], (
+        "CRITICAL reads as merely stricter and is not: it drops the ERROR "
+        "band, which carries ILP parse failures"
     )
 
 
