@@ -49,6 +49,23 @@ services:
       - QDB_SHARED_WORKER_COUNT=1
       - QDB_LINE_TCP_WRITER_WORKER_COUNT=1
       - QDB_CAIRO_O3_COLUMN_MEMORY_SIZE=262144
+      # Every worker pool spins for sleep.threshold poll cycles before it
+      # sleeps, and the default 10000 keeps threads burning CPU on a mostly
+      # idle boat. The cost is a fixed floor rather than work: at 139 rows/s
+      # the defaults spend 8.5% of a core, of which under 0.3% is ingest. 100
+      # cycles still absorbs a burst without a wakeup, and the pools that serve
+      # features nothing here uses -- materialised views, live views, export --
+      # stop polling for work that never arrives.
+      - QDB_LINE_TCP_IO_WORKER_SLEEP_THRESHOLD=100
+      - QDB_LINE_TCP_WRITER_WORKER_SLEEP_THRESHOLD=100
+      - QDB_WAL_APPLY_WORKER_SLEEP_THRESHOLD=100
+      - QDB_MAT_VIEW_REFRESH_WORKER_SLEEP_THRESHOLD=100
+      - QDB_LIVE_VIEW_REFRESH_WORKER_SLEEP_THRESHOLD=100
+      - QDB_EXPORT_WORKER_SLEEP_THRESHOLD=100
+      # QuestDB logs every WAL commit at INFO, which is 4.8 lines/s of journald
+      # traffic here and a full percent of a core in its logging thread. ERROR
+      # keeps the failures that matter and drops the commit narration.
+      - QDB_LOG_W_STDOUT_LEVEL=ERROR
     # QuestDB memory-maps every partition column file and every WAL segment, so
     # it needs far more descriptors than the stock limit grants. The container
     # inherits this from the runtime rather than from the host's fs.file-max.
