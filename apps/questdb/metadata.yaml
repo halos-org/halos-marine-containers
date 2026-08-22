@@ -51,5 +51,6 @@ layout:
   height: 2
 default_config:
   QUESTDB_MEMORY_LIMIT: 768m
+  QUESTDB_HEAP_LIMIT: 192m
   QUESTDB_COMMIT_MODE: nosync
   QUESTDB_LOG_LEVEL: ERROR

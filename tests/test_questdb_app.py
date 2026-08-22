@@ -142,6 +142,40 @@ def test_every_thread_pool_that_starts_workers_is_sized_and_slept():
         )
 
 
+def test_every_config_field_has_a_matching_packaged_default():
+    """config.yml declares the field; metadata.yaml is what ships as its value.
+
+    A field present in one and absent from the other is not a startup failure,
+    because the compose file carries a ${VAR:-default} fallback -- so the app
+    runs, and the only symptom is a setting whose packaged default disagrees
+    with the one its own description documents. That is the same silent class as
+    a mistyped QDB_ variable, and it happened: QUESTDB_HEAP_LIMIT was added to
+    config.yml with no entry here.
+
+    Asserting the whole mapping rather than one field is deliberate. The next
+    field added will be the one nobody thinks to pin.
+    """
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    declared = {
+        field["id"]: field["default"]
+        for group in config["groups"]
+        for field in group["fields"]
+    }
+    packaged = _metadata()["default_config"]
+
+    assert set(declared) == set(packaged), (
+        "config.yml and metadata.yaml default_config must cover the same "
+        f"fields; only in config.yml: {sorted(set(declared) - set(packaged))}, "
+        f"only in metadata.yaml: {sorted(set(packaged) - set(declared))}"
+    )
+    for key, value in declared.items():
+        assert str(packaged[key]) == str(value), (
+            f"{key} defaults to {value!r} in config.yml but ships as "
+            f"{packaged[key]!r} in metadata.yaml"
+        )
+
+
 def test_heap_limit_is_capped_and_overridable():
     """The JVM cannot read this container's memory limit, so it must be told.
 
