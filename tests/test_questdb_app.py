@@ -142,6 +142,35 @@ def test_every_thread_pool_that_starts_workers_is_sized_and_slept():
         )
 
 
+def test_heap_limit_is_capped_and_overridable():
+    """The JVM cannot read this container's memory limit, so it must be told.
+
+    Raspberry Pi OS boots with cgroup_disable=memory, so mem_limit is accepted
+    and never enforced, and the JVM's container detection finds nothing. It then
+    sizes its heap ceiling at 25% of the whole board and grows into it -- 312 MB
+    committed on a HALPI2, never collected, because nothing pressures it to give
+    the pages back. An explicit -Xmx is the only thing that bounds it here.
+
+    It has to stay overridable. Too small a heap does not fail as an
+    out-of-memory error; it fails as continuous full GC, so the container starts
+    and never becomes healthy. Recovering from that on a boat must not require
+    editing package payload that the next upgrade overwrites.
+    """
+    prepend = _environment().get("JVM_PREPEND")
+    assert prepend == "-Xmx${QUESTDB_HEAP_LIMIT:-192m}", (
+        "the heap ceiling must interpolate a config field; a literal here "
+        "cannot be raised through /etc/container-apps/questdb/env"
+    )
+
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
+    assert fields["QUESTDB_HEAP_LIMIT"]["default"] == "192m", (
+        "192m is the measured setting; 128m went into a full-GC spiral on a "
+        "three-table database and never reached a healthy healthcheck"
+    )
+
+
 def test_log_level_is_overridable_and_keeps_critical():
     """ERROR hides the INFO band that precedes a table suspension.
 

@@ -30,6 +30,21 @@ services:
       - QDB_TELEMETRY_ENABLED=false
       - QDB_HTTP_ENABLED=true
       - QDB_LINE_TCP_ENABLED=true
+      # The JVM picks its heap ceiling as 25% of what it believes the machine
+      # has. It cannot read mem_limit below, because Raspberry Pi OS boots with
+      # cgroup_disable=memory and there is no memory controller to read -- so on
+      # a 4 GiB board it reserves 1 GiB and grows into it. Measured on a HALPI2:
+      # 312 MB of committed heap, and zero GC pauses in seven minutes, because
+      # nothing ever pressures it to give the pages back. Capping at 192m (what
+      # a working 768m limit would have produced) returns 43 MB of RSS for two
+      # GC pauses in the same period.
+      #
+      # The floor is not far below: at 128m the same workload went into a
+      # full-GC spiral -- 1030 pauses, ending 99M->99M(114M) back to back -- and
+      # never reached a healthy healthcheck. A device with more paths, more AIS
+      # targets or more open partitions has a larger live set than the one this
+      # was measured on, so this stays raisable without editing package payload.
+      - JVM_PREPEND=-Xmx${QUESTDB_HEAP_LIMIT:-192m}
       # nosync is QuestDB's own default and restated here so the setting has a
       # value to override. What it risks is a commit record reaching disk while
       # the partition data it describes does not, which costs the whole table:

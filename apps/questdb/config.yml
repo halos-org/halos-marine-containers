@@ -11,10 +11,30 @@ groups:
         default: 768m
         required: true
         description: >-
-          Hard memory cap for the container (e.g. 512m, 1g, 2g). QuestDB's JVM
-          sizes its heap from this, so it bounds total memory rather than heap
-          alone. The default suits a device running the full marine stack;
-          raise it on hardware with memory to spare.
+          Hard memory cap for the container (e.g. 512m, 1g, 2g). Note that
+          Raspberry Pi OS boots with cgroup_disable=memory, so on HaLOS there is
+          no memory controller and this limit is accepted but never enforced --
+          docker stats reports 0B for every container. Use the heap limit below
+          to bound QuestDB on such a device. This field still applies on a host
+          whose kernel has the memory controller enabled.
+
+      - id: QUESTDB_HEAP_LIMIT
+        label: Java Heap Limit
+        type: string
+        default: 192m
+        required: true
+        description: >-
+          Ceiling for QuestDB's Java heap (e.g. 192m, 256m, 512m). Most of
+          QuestDB's memory is off-heap, but the JVM sizes its heap ceiling from
+          the host's RAM when no container memory limit is readable, so without
+          this it reserves a quarter of the board and grows into it. 192m
+          measured 43 MB lighter than that with no meaningful CPU cost.
+
+          Raise this if QuestDB fails to become healthy after an upgrade or
+          after the database grows: too small a heap sends the JVM into
+          continuous full GC, which looks like a container that starts and never
+          comes up rather than an out-of-memory error. 128m was already past
+          that edge on a three-table database.
 
   - id: durability
     label: Durability
