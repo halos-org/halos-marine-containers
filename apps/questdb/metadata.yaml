@@ -1,6 +1,6 @@
 name: QuestDB
 app_id: questdb
-version: 10.0.0-1
+version: 10.0.0-2
 upstream_version: 10.0.0
 description: Time-series database for high-rate marine data logging
 long_description: |
@@ -51,3 +51,6 @@ layout:
   height: 2
 default_config:
   QUESTDB_MEMORY_LIMIT: 768m
+  QUESTDB_HEAP_LIMIT: 192m
+  QUESTDB_COMMIT_MODE: nosync
+  QUESTDB_LOG_LEVEL: ERROR

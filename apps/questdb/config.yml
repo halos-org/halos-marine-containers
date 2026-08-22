@@ -11,7 +11,72 @@ groups:
         default: 768m
         required: true
         description: >-
-          Hard memory cap for the container (e.g. 512m, 1g, 2g). QuestDB's JVM
-          sizes its heap from this, so it bounds total memory rather than heap
-          alone. The default suits a device running the full marine stack;
-          raise it on hardware with memory to spare.
+          Hard memory cap for the container (e.g. 512m, 1g, 2g). Note that
+          Raspberry Pi OS boots with cgroup_disable=memory, so on HaLOS there is
+          no memory controller and this limit is accepted but never enforced --
+          docker stats reports 0B for every container. Use the heap limit below
+          to bound QuestDB on such a device. This field still applies on a host
+          whose kernel has the memory controller enabled.
+
+      - id: QUESTDB_HEAP_LIMIT
+        label: Java Heap Limit
+        type: string
+        default: 192m
+        required: true
+        description: >-
+          Ceiling for QuestDB's Java heap (e.g. 192m, 256m, 512m). Most of
+          QuestDB's memory is off-heap, but the JVM sizes its heap ceiling from
+          the host's RAM when no container memory limit is readable, so without
+          this it reserves a quarter of the board and grows into it. 192m
+          measured 43 MB lighter than that with no meaningful CPU cost.
+
+          Raise this if QuestDB fails to become healthy after an upgrade or
+          after the database grows: too small a heap sends the JVM into
+          continuous full GC, which looks like a container that starts and never
+          comes up rather than an out-of-memory error. 128m was already past
+          that edge on a three-table database.
+
+  - id: durability
+    label: Durability
+    description: What an unclean shutdown costs
+    fields:
+      - id: QUESTDB_COMMIT_MODE
+        label: Commit Mode
+        type: enum
+        options:
+          - nosync
+          - sync
+        default: nosync
+        required: true
+        description: >-
+          How QuestDB flushes a commit to disk. nosync is QuestDB's default and
+          leaves durability to the OS page cache, which an unclean shutdown can
+          cost you the whole table for. HALPI2 rides a supply cut through to an
+          orderly shutdown on its supercapacitors, so nosync is the right
+          default here. Set sync on hardware that simply stops when the supply
+          does; it fsyncs every commit and costs about 1.3% of a CPU core at
+          boat data rates.
+
+  - id: diagnostics
+    label: Diagnostics
+    description: Logging verbosity for field troubleshooting
+    fields:
+      - id: QUESTDB_LOG_LEVEL
+        label: Log Level
+        type: enum
+        options:
+          - ERROR
+          - INFO
+          - DEBUG
+        default: ERROR
+        required: true
+        description: >-
+          Console log level. ERROR is the default and still records table
+          suspension and ILP parse failures, because a level here is a floor
+          rather than an exact set. Set INFO when a device stops recording with
+          no obvious cause: that band carries the WAL apply memory-pressure
+          backoff that precedes a suspension. INFO costs roughly a percent of a
+          CPU core and writes several journald lines a second, so put it back to
+          ERROR afterwards. QuestDB also accepts CRITICAL, which is not offered
+          here because it drops the ERROR band that ILP parse failures arrive
+          in.

@@ -54,16 +54,223 @@ def test_every_published_port_is_loopback_only():
         )
 
 
-def test_commit_mode_is_sync():
-    """QuestDB's default leaves durability to the OS page cache.
+def test_commit_mode_is_overridable():
+    """The choice between nosync and sync is about the host's power path.
 
-    A power cut can then land a commit record while the partition data it
-    describes is still dirty. The table claims rows that are not on disk and
-    QuestDB fails while opening the partition -- a state no RESUME WAL variant
-    repairs, because the failure happens before any transaction is read. Boats
-    lose power; this is the deployment, not an edge case.
+    nosync leaves durability to the OS page cache, so an unclean shutdown can
+    land a commit record while the partition data it describes is still dirty.
+    The table then claims rows that are not on disk and QuestDB fails while
+    opening the partition -- a state no RESUME WAL variant repairs, because the
+    failure happens before any transaction is read. It costs the whole table,
+    not the last few seconds.
+
+    HALPI2 carries supercapacitors, so loss of supply becomes an orderly
+    shutdown and the remaining causes are a kernel panic, a watchdog reset or a
+    device pulled live. nosync is the call for that hardware and the wrong one
+    for a board that simply stops when the supply does, so the value has to
+    stay reachable from the app's config rather than being pinned in payload
+    the next upgrade overwrites.
     """
-    assert _environment().get("QDB_CAIRO_COMMIT_MODE") == "sync"
+    mode = _environment().get("QDB_CAIRO_COMMIT_MODE")
+    assert mode == "${QUESTDB_COMMIT_MODE:-nosync}", (
+        "the commit mode must interpolate a config field; a literal here "
+        "cannot be changed through /etc/container-apps/questdb/env"
+    )
+
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
+    assert fields["QUESTDB_COMMIT_MODE"]["default"] == "nosync", (
+        "HALPI2 is the hardware this ships on and sync buys it nothing"
+    )
+    assert fields["QUESTDB_COMMIT_MODE"]["options"] == ["nosync", "sync"], (
+        "QuestDB maps an unrecognised value back to nosync without a word, so "
+        "a typed field would silently drop a requested sync"
+    )
+
+
+def test_no_worker_setting_carries_the_cairo_prefix():
+    """QuestDB ignores an environment variable whose name it does not know.
+
+    It validates server.conf strictly and refuses to start on an unrecognised
+    key there, but the environment is never checked: a misnamed QDB_ variable
+    leaves the container healthy, recording, answering queries, and running the
+    default the setting was meant to replace. QDB_CAIRO_WAL_APPLY_WORKER_COUNT
+    shipped that way from this app's first commit -- the property is
+    wal.apply.worker.count, with no cairo. prefix -- and nothing surfaced it
+    until someone counted threads on a device.
+
+    So the wrong name is the thing to assert against, not the right one.
+    """
+    for key in _environment():
+        assert not key.startswith("QDB_CAIRO_WAL_APPLY_"), (
+            f"{key} is not a QuestDB property: the wal.apply.* pool takes no "
+            "cairo. prefix, and QuestDB ignores the variable without a word"
+        )
+
+
+def test_every_thread_pool_that_starts_workers_is_sized_and_slept():
+    """A pool left out of either list keeps QuestDB's defaults.
+
+    Both defaults are wrong for this deployment. The worker count comes from
+    the core count, so a 4-core board gets two threads for pools this stack
+    never exercises; the sleep threshold is 10000 poll cycles, which burns CPU
+    whether or not rows arrive. Neither has a global override -- the settings
+    are per pool, and a pool nobody thought of is a pool still spinning.
+
+    QDB_SHARED_WORKER_COUNT is the one count covering more than its own pool:
+    the network, query and write pools each fall back to it.
+    """
+    env = _environment()
+    pools = [
+        "WAL_APPLY",
+        "LINE_TCP_IO",
+        "LINE_TCP_WRITER",
+        "VIEW_COMPILER",
+        "MAT_VIEW_REFRESH",
+        "LIVE_VIEW_REFRESH",
+    ]
+    for pool in pools:
+        assert f"QDB_{pool}_WORKER_COUNT" in env, (
+            f"the {pool} pool has no worker count, so QuestDB sizes it from "
+            "the core count"
+        )
+    for pool in pools + ["SHARED", "EXPORT"]:
+        assert env.get(f"QDB_{pool}_WORKER_SLEEP_THRESHOLD") == "100", (
+            f"the {pool} pool has no sleep threshold, so its workers spin "
+            "10000 cycles before sleeping"
+        )
+
+
+def test_fields_with_options_are_typed_as_enums():
+    """An `options` list is advisory unless the type makes it binding.
+
+    A field carrying options but typed `string` renders as a free-text box, so
+    the values it lists constrain nobody and the field's own documentation
+    becomes the only thing standing between an operator and a value QuestDB
+    does not accept. The two settings that have a closed set here are the ones
+    where a wrong value is silently absorbed rather than rejected: QuestDB maps
+    an unsupported commit mode onto nosync, quietly downgrading durability
+    somebody asked for.
+    """
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
+
+    for name, field in fields.items():
+        if "options" in field:
+            assert field["type"] == "enum", (
+                f"{name} lists options but is typed {field['type']!r}, so the "
+                "list constrains nothing"
+            )
+            assert field["default"] in field["options"], (
+                f"{name} defaults to {field['default']!r}, which is not among "
+                f"its own options {field['options']}"
+            )
+
+    assert set(fields["QUESTDB_COMMIT_MODE"]["options"]) == {"nosync", "sync"}, (
+        "these are the only two values QuestDB accepts; anything else is "
+        "absorbed as nosync rather than rejected"
+    )
+    assert set(fields["QUESTDB_LOG_LEVEL"]["options"]) == {"ERROR", "INFO", "DEBUG"}, (
+        "CRITICAL and ADVISORY are deliberately absent -- a level is a floor "
+        "rather than an exact set, so CRITICAL would drop the ERROR band that "
+        "ILP parse failures arrive in"
+    )
+
+
+def test_every_config_field_has_a_matching_packaged_default():
+    """config.yml declares the field; metadata.yaml is what ships as its value.
+
+    A field present in one and absent from the other is not a startup failure,
+    because the compose file carries a ${VAR:-default} fallback -- so the app
+    runs, and the only symptom is a setting whose packaged default disagrees
+    with the one its own description documents. That is the same silent class as
+    a mistyped QDB_ variable, and it happened: QUESTDB_HEAP_LIMIT was added to
+    config.yml with no entry here.
+
+    Asserting the whole mapping rather than one field is deliberate. The next
+    field added will be the one nobody thinks to pin.
+    """
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    declared = {
+        field["id"]: field["default"]
+        for group in config["groups"]
+        for field in group["fields"]
+    }
+    packaged = _metadata()["default_config"]
+
+    assert set(declared) == set(packaged), (
+        "config.yml and metadata.yaml default_config must cover the same "
+        f"fields; only in config.yml: {sorted(set(declared) - set(packaged))}, "
+        f"only in metadata.yaml: {sorted(set(packaged) - set(declared))}"
+    )
+    for key, value in declared.items():
+        assert str(packaged[key]) == str(value), (
+            f"{key} defaults to {value!r} in config.yml but ships as "
+            f"{packaged[key]!r} in metadata.yaml"
+        )
+
+
+def test_heap_limit_is_capped_and_overridable():
+    """The JVM cannot read this container's memory limit, so it must be told.
+
+    Raspberry Pi OS boots with cgroup_disable=memory, so mem_limit is accepted
+    and never enforced, and the JVM's container detection finds nothing. It then
+    sizes its heap ceiling at 25% of the whole board and grows into it -- 312 MB
+    committed on a HALPI2, never collected, because nothing pressures it to give
+    the pages back. An explicit -Xmx is the only thing that bounds it here.
+
+    It has to stay overridable. Too small a heap does not fail as an
+    out-of-memory error; it fails as continuous full GC, so the container starts
+    and never becomes healthy. Recovering from that on a boat must not require
+    editing package payload that the next upgrade overwrites.
+    """
+    prepend = _environment().get("JVM_PREPEND")
+    assert prepend == "-Xmx${QUESTDB_HEAP_LIMIT:-192m}", (
+        "the heap ceiling must interpolate a config field; a literal here "
+        "cannot be raised through /etc/container-apps/questdb/env"
+    )
+
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
+    assert fields["QUESTDB_HEAP_LIMIT"]["default"] == "192m", (
+        "192m is the measured setting; 128m went into a full-GC spiral on a "
+        "three-table database and never reached a healthy healthcheck"
+    )
+
+
+def test_log_level_is_overridable_and_keeps_critical():
+    """ERROR hides the INFO band that precedes a table suspension.
+
+    A level is a floor rather than an exact set, so ERROR still carries
+    CRITICAL and ADVISORY -- suspension and the max_map_count warning survive.
+    The WAL apply memory-pressure backoff does not, and that is the warning a
+    boat needs when recording stalls with the server healthy. The value has to
+    stay reachable from the app's config so an operator can raise it without
+    editing package payload that the next upgrade overwrites.
+
+    CRITICAL would read as merely stricter and is not: it drops the ERROR band
+    with ILP parse failures and non-tolerable apply errors in it.
+    """
+    level = _environment().get("QDB_LOG_W_STDOUT_LEVEL")
+    assert level == "${QUESTDB_LOG_LEVEL:-ERROR}", (
+        "the log level must interpolate a config field; a literal here cannot "
+        "be changed through /etc/container-apps/questdb/env"
+    )
+
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
+    assert fields["QUESTDB_LOG_LEVEL"]["default"] == "ERROR", (
+        "INFO as the shipped default is the cost this app was tuned to remove"
+    )
+    assert "CRITICAL" not in fields["QUESTDB_LOG_LEVEL"]["options"], (
+        "CRITICAL reads as merely stricter and is not: it drops the ERROR "
+        "band, which carries ILP parse failures"
+    )
 
 
 def test_prestart_raises_max_map_count():
