@@ -142,6 +142,43 @@ def test_every_thread_pool_that_starts_workers_is_sized_and_slept():
         )
 
 
+def test_fields_with_options_are_typed_as_enums():
+    """An `options` list is advisory unless the type makes it binding.
+
+    A field carrying options but typed `string` renders as a free-text box, so
+    the values it lists constrain nobody and the field's own documentation
+    becomes the only thing standing between an operator and a value QuestDB
+    does not accept. The two settings that have a closed set here are the ones
+    where a wrong value is silently absorbed rather than rejected: QuestDB maps
+    an unsupported commit mode onto nosync, quietly downgrading durability
+    somebody asked for.
+    """
+    with open(APP_DIR / "config.yml") as f:
+        config = yaml.safe_load(f)
+    fields = {f["id"]: f for group in config["groups"] for f in group["fields"]}
+
+    for name, field in fields.items():
+        if "options" in field:
+            assert field["type"] == "enum", (
+                f"{name} lists options but is typed {field['type']!r}, so the "
+                "list constrains nothing"
+            )
+            assert field["default"] in field["options"], (
+                f"{name} defaults to {field['default']!r}, which is not among "
+                f"its own options {field['options']}"
+            )
+
+    assert set(fields["QUESTDB_COMMIT_MODE"]["options"]) == {"nosync", "sync"}, (
+        "these are the only two values QuestDB accepts; anything else is "
+        "absorbed as nosync rather than rejected"
+    )
+    assert set(fields["QUESTDB_LOG_LEVEL"]["options"]) == {"ERROR", "INFO", "DEBUG"}, (
+        "CRITICAL and ADVISORY are deliberately absent -- a level is a floor "
+        "rather than an exact set, so CRITICAL would drop the ERROR band that "
+        "ILP parse failures arrive in"
+    )
+
+
 def test_every_config_field_has_a_matching_packaged_default():
     """config.yml declares the field; metadata.yaml is what ships as its value.
 
