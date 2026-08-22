@@ -565,9 +565,12 @@ exact tag and fetches it the same way. Tracked in halos-org/container-packaging-
 
 ### QuestDB ignores a setting it does not recognise
 
-QuestDB validates `server.conf` strictly -- an unknown key there aborts startup
-with `Invalid settings (not recognized, probable typos)` and the key named. It
-never validates the environment. A misspelled `QDB_*` variable is dropped in
+QuestDB validates `server.conf` when `config.validation.strict` is on -- an
+unknown key there aborts startup with `Invalid settings (not recognized,
+probable typos)` and the key named. QuestDB's built-in default for that flag is
+`false`, but the `server.conf` it ships turns it on, which is why our containers
+get the strict behaviour. It never validates the environment, whatever the flag
+says. A misspelled `QDB_*` variable is dropped in
 silence: the container starts, passes its healthcheck, records, answers queries,
 and runs the default the variable was meant to replace.
 
