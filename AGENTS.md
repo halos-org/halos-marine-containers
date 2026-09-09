@@ -79,6 +79,33 @@ Individual apps in `apps/` have their own versions in `metadata.yaml`. These are
 - **App-level (per PR)**: PRs that change files in `apps/<app>/` must bump the `version` field in `apps/<app>/metadata.yaml`, or CI will fail.
 - **Repo-level (per release cycle)**: `VERSION` bumps are per release cycle, not per PR — CI fails only on the PR that opens a new cycle. This repo is a clean example: `0.3.2` shipped 24 `+N` prereleases before the current cycle opened at `0.4.0`. See the workspace `AGENTS.md` version-bump policy for the decision procedure — including the highest-level-wins rule: if a change at a higher semver level than the cycle-opening bump lands mid-cycle, re-bump `VERSION` up to that level once.
 
+## Why the history backend is moving off InfluxDB
+
+**InfluxDB is the incumbent, not the destination.** `apps/influxdb` ships InfluxDB OSS 2.x
+and the `signalk-to-influxdb2` provider, and both work. What does not work is the upgrade
+path, which is why `signalk-questdb-history-provider` and
+`@halos-org/signalk-duckdb-history-provider` exist.
+
+- **InfluxDB 3 Core, the open-source release, caps a single query at about 72 hours of
+  range.** This is not a retention limit — any historical period may be written and
+  stored — but no one query may span more than roughly 72 hours. It falls out of the
+  default 432-Parquet-file limit at a 10-minute gen1 duration. "Historical query
+  capability" is listed among the things Enterprise adds to Core.
+- **The free InfluxDB 3 Enterprise tier is for "at-home, non-commercial use."** HaLOS is a
+  Hat Labs Oy product, so that tier is not a licence it can ship on.
+- **InfluxDB OSS 2.x has no such cap and is the end of its line.**
+
+A vessel asks for a season of history, so a 72-hour ceiling on a single query rules the
+engine out however fast it is. Measured on `halosdev.hal` in September 2026, InfluxDB 2.9.1
+was the fastest of the three on every query shape tested — and two of those seven queries
+span five days and could not have been served by a single query on 3 Core at all.
+
+Sources: [InfluxDB 3 Core docs](https://docs.influxdata.com/influxdb3/core/),
+[the 72-hour announcement](https://www.influxdata.com/blog/influxdb3-open-source-public-alpha-jan-27/).
+
+Do not add InfluxDB capacity or features on the assumption it is the long-term backend.
+Fixing a defect in the shipped 2.x app is fine; building on it is not.
+
 ## What This Repository Contains
 
 **Two things in one repository**:
