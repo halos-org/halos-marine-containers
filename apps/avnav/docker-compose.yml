@@ -3,7 +3,7 @@ services:
     # Daily channel, not stable: upstream last rebuilt avnav-stable on
     # 2025-10-28, and the ochartsng it bundles is rejected by the o-charts
     # shop. Move back if upstream resumes stable builds.
-    image: xfreex/avnav-daily:20260709
+    image: xfreex/avnav-daily:20260827
     container_name: avnav
     init: true
     restart: unless-stopped
