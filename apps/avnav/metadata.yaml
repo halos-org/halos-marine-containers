@@ -1,7 +1,7 @@
 name: AvNav
 app_id: avnav
-version: 20260709-1
-upstream_version: "20260709"
+version: 20260827-1
+upstream_version: "20260827"
 description: Touch-optimized chart plotter for sailing and motor yachts
 long_description: |
   AvNav is a navigation software specifically designed for touch operation on
