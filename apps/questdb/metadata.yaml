@@ -1,7 +1,7 @@
 name: QuestDB
 app_id: questdb
-version: 10.0.0-2
-upstream_version: 10.0.0
+version: 10.0.1-1
+upstream_version: 10.0.1
 description: Time-series database for high-rate marine data logging
 long_description: |
   QuestDB is a time-series database built for high ingestion rates on modest
