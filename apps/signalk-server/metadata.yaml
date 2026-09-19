@@ -1,6 +1,6 @@
 name: Signal K Server
 app_id: signalk-server
-version: 2.32.0-1
+version: 2.32.0-2
 upstream_version: 2.32.0
 description: Signal K server for marine data processing and routing
 long_description: |
@@ -44,6 +44,14 @@ layout:
   y_offset: 0
 routing:
   host_port: 3000
+  # SensESP devices find the server over mDNS. Signal K's own responder cannot
+  # do it here: the container is host-networked, so avahi-daemon already owns
+  # UDP 5353 and the server's responder answers nothing. default-data therefore
+  # sets "mdns": false and the record is published through avahi instead. It
+  # names the Traefik TLS port, so devices stay on TLS; SensESP queries
+  # _signalk-wss._tcp first and pins the device CA on first connection.
+  mdns:
+    - _signalk-wss._tcp
   auth:
     # Signal K authenticates users itself via Authelia OIDC (native OAuth), so
     # there is no Traefik edge gate; mode: oidc wires the Authelia client
