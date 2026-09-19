@@ -44,14 +44,27 @@ layout:
   y_offset: 0
 routing:
   host_port: 3000
-  # SensESP devices find the server over mDNS. Signal K's own responder cannot
-  # do it here: the container is host-networked, so avahi-daemon already owns
-  # UDP 5353 and the server's responder answers nothing. default-data therefore
-  # sets "mdns": false and the record is published through avahi instead. It
-  # names the Traefik TLS port, so devices stay on TLS; SensESP queries
-  # _signalk-wss._tcp first and pins the device CA on first connection.
+  # Clients find the server over mDNS. Signal K's own responder cannot do it
+  # here: the container is host-networked, so avahi-daemon already owns UDP
+  # 5353 and the server's responder answers nothing (the probe in
+  # halos-org/halos#181 shows every Signal K type returning NO RESPONSE).
+  # default-data therefore sets "mdns": false, and avahi publishes instead.
+  #
+  # Disabling the responder drops all six record sets it publishes, so this
+  # list replaces them rather than adding one. The entries without a port take
+  # the Traefik TLS port, which keeps clients on TLS; _nmea-0183 is a plain TCP
+  # stream the proxy does not front, so it names its own port. _signalk-tcp
+  # (8375) is deliberately absent: it is Signal K over plaintext.
+  #
+  # Two records are not equivalent to what the server published. avahi cannot
+  # supply the TXT keys, so clients lose `roles` and `self` (the vessel MRN),
+  # which only the running server knows. Tracked in halos-org/halos#182.
   mdns:
-    - _signalk-wss._tcp
+    - type: _signalk-wss._tcp
+    - type: _signalk-https._tcp
+    - type: _https._tcp
+    - type: _nmea-0183._tcp
+      port: 10110
   auth:
     # Signal K authenticates users itself via Authelia OIDC (native OAuth), so
     # there is no Traefik edge gate; mode: oidc wires the Authelia client

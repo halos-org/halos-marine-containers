@@ -389,6 +389,23 @@ first seeded with, while `apt` reports success and the app version bumps. This i
 the same reach constraint as the baked plugin set below, and every change here
 needs the same explicit decision: migrate, or accept and say so.
 
+**`"mdns": false` is accepted as unreachable, not migrated.** avahi publishes
+Signal K's DNS-SD records now (`routing.mdns` in `metadata.yaml`), and the flag
+stops the server from also trying. On a fielded device the flag never lands, so
+the server's responder stays enabled -- and that is tolerable, because the
+responder is what does not work: the probe in
+[halos-org/halos#181](https://github.com/halos-org/halos/issues/181) shows every
+Signal K service type returning NO RESPONSE while avahi answers for the same
+host. A device that keeps the responder enabled has a process holding UDP 5353
+alongside avahi and answering nothing, which is the state it was already in.
+avahi's records are unaffected either way, which the hand-applied workaround on
+that issue demonstrated before any of this shipped.
+
+So the flag is hygiene for fresh images, not the mechanism. Do not read the
+`metadata.yaml` comment as a claim about the installed base. If the responder
+ever does start answering -- an upstream change, a move off host networking --
+this becomes two publishers for overlapping types and needs a real migration.
+
 **The missing liner is migrated; nothing else is.** `prestart.sh` splices a
 `providers/liner` into a connection whose `pipeElements` are `providers/gpsd`
 immediately followed by `providers/nmea0183-signalk`, keeping the file as it was
