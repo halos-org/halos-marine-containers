@@ -34,10 +34,13 @@ if command -v uvx >/dev/null 2>&1; then
     echo "=== Building container app packages ==="
 
     # Determine tools source: local path, git ref, or pinned default.
-    # The apps require the composable-prestart + declarative-OIDC capabilities,
-    # so the default is pinned to a release tag rather than tracking main.
+    # The apps require the composable-prestart, declarative-OIDC and
+    # routing.mdns capabilities, so the default is pinned to a release tag
+    # rather than tracking main. A pin older than a field an app declares
+    # drops that field and still builds, so bump this pin in the same PR that
+    # adds the field, and bump the app's own version so the .deb ships.
     TOOLS_PATH="${CONTAINER_TOOLS_PATH:-}"
-    TOOLS_REF="${CONTAINER_TOOLS_REF:-v0.10.0+1}"
+    TOOLS_REF="${CONTAINER_TOOLS_REF:-v0.12.0+1}"
     if [ -n "$TOOLS_PATH" ]; then
         TOOLS_SOURCE="$TOOLS_PATH"
         echo "Using local container-packaging-tools from: $TOOLS_PATH"
