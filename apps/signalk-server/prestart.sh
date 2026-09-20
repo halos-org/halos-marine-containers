@@ -82,6 +82,19 @@ ATTEMPTS = 4
 # the key the history provider registry and settings.json both index by.
 QUESTDB_PLUGIN_ID = "signalk-questdb-history-provider"
 
+# The record that the mDNS default has been applied. Without it root cannot tell
+# a device it has never touched from one where an operator turned the responder
+# back on: on disk those two are the same document.
+MDNS_APPLIED = "settings.json.mdns-applied"
+MDNS_APPLIED_NOTE = """HaLOS set "mdns": false in settings.json once, so Signal K does not advertise
+the DNS-SD records avahi already publishes for it. Both responders answer on the
+same port, and every service is then advertised twice.
+
+The setting is yours to change in the admin UI under Server -> Settings; it will
+not be set again while this file exists. Delete this file to have it applied
+once more.
+"""
+
 
 def warn(msg):
     print("WARNING: " + msg, flush=True)
@@ -359,7 +372,7 @@ def configure_questdb(sk_fd):
 
 
 def disable_builtin_mdns(sk_fd):
-    """Turn the server's own responder off on a device seeded before the flag.
+    """Turn the server's own responder off once, and let the operator have it back.
 
     avahi publishes this app's records from routing.mdns, and the server
     advertises the same service types alongside them. Both it and avahi-daemon
@@ -368,23 +381,47 @@ def disable_builtin_mdns(sk_fd):
     keys. `default-data` is copy-if-absent, so the "mdns": false it carries
     reached new installs only.
 
-    Written only where the key is absent, which is exactly the state that
-    produces the duplicate. The server never writes this key itself -- a device
-    that has saved settings through the admin UI has gained bleApi, courseApi,
-    interfaces and resourcesApi and still has none -- so a key that is present
-    was put there deliberately, and neither value is root's to overrule.
+    The key being absent cannot be the predicate. GET /skServer/settings fills
+    options.mdns from `app.config.settings.mdns ?? true`, and the admin UI's
+    Settings page saves the whole object back, so an operator who changed the log
+    directory or an interface on that page has "mdns": true on disk without
+    having decided anything about mDNS (serverroutes.ts:860 and :1157 in the
+    pinned 2.32.0). On disk that is the same document as a deliberate choice,
+    which is why the marker exists rather than a test on the value.
+
+    So the value is written once, whatever it was, and the marker stops it being
+    written again. A device configured through that page is repaired, and an
+    operator who afterwards turns the responder back on keeps it.
     """
+    try:
+        os.lstat(MDNS_APPLIED, dir_fd=sk_fd)
+        return
+    except FileNotFoundError:
+        pass
+
     read = read_settings(sk_fd)
     if read is None:
-        return
+        return  # a fresh install has none yet; default-data carries the flag
     settings, mode, _ = read
 
-    if "mdns" in settings:
-        return
-
-    settings["mdns"] = False
-    if write_settings(sk_fd, settings, mode):
+    if settings.get("mdns") is not False:
+        settings["mdns"] = False
+        if not write_settings(sk_fd, settings, mode):
+            warn("cannot stage the rewrite; leaving the mDNS responder as it is")
+            return
         print("Disabled Signal K's own mDNS responder; avahi publishes instead")
+
+    # After the change, never before, for the reason the liner backup below
+    # spells out: a record that lands first turns an interrupted boot into a
+    # device this never looks at again. Losing it costs a repeat of a write that
+    # is idempotent, so it warns rather than returning.
+    try:
+        recorded = create_guarded(sk_fd, MDNS_APPLIED, MDNS_APPLIED_NOTE, mode=mode)
+    except OSError as exc:
+        recorded = False
+        warn("could not record the mDNS setting: %s" % exc)
+    if not recorded:
+        warn("the mDNS setting is not recorded and will be applied again")
 
 
 def clear_gone_default_history_provider(sk_fd, installed):
@@ -642,15 +679,6 @@ if not existing:
     print("NOTE: Local admin password stored in %s/admin-password" % DATA_ROOT)
     print("This is a fallback for emergency access. Use OIDC for regular login.")
 
-# Ahead of the liner migration, so the copy that one keeps is the document as
-# this boot will leave it. Its own reasoning is the same: a device left
-# advertising twice is discoverable twice, while an exception here is an
-# ExecStartPre abort and no navigation server at all.
-try:
-    disable_builtin_mdns(sk_fd)
-except Exception as exc:
-    warn("Signal K's own mDNS responder not disabled: %s" % exc)
-
 # A repair, not a precondition: a device left on the old connection shows no
 # position, which is where it already was, while an exception on the way there is
 # an ExecStartPre abort and no navigation server at all.
@@ -658,6 +686,15 @@ try:
     migrate_gpsd_liner(sk_fd)
 except Exception as exc:
     warn("gpsd connection not migrated: %s" % exc)
+
+# After the liner migration, so the copy that one keeps is the connection as it
+# was rather than a document this boot has already rewritten. Same licence: a
+# device left advertising twice is discoverable twice, while an exception here is
+# an ExecStartPre abort and no navigation server at all.
+try:
+    disable_builtin_mdns(sk_fd)
+except Exception as exc:
+    warn("Signal K's own mDNS responder not disabled: %s" % exc)
 
 # Logging is not navigation: a failure here must not cost the boot.
 if INFLUX_TOKEN:

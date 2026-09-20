@@ -86,6 +86,7 @@ sys.exit(0 if migrated == before else 1)
 PRE_LINER_SETTINGS='{
   "ssl": false,
   "trustProxy": true,
+  "mdns": false,
   "pipedProviders": [
     {
       "id": "gpsd",
@@ -1126,15 +1127,31 @@ teardown
 
 # --- Signal K's own mDNS responder -------------------------------------------
 #
-# avahi publishes this app's records from routing.mdns. The server's responder
-# advertises the same types alongside them unless it is turned off, and
-# default-data is copy-if-absent, so the flag reached new installs only.
+# avahi publishes this app's records from routing.mdns. The server advertises the
+# same types alongside them unless it is turned off, and default-data is
+# copy-if-absent, so the flag reached new installs only.
 
-# What a device seeded before the flag carries: every key the server has written
-# for itself, and no mdns.
+MDNS_MARKER="settings.json.mdns-applied"
+
+# A device the server has only ever written for itself: interfaces defaults to
+# the empty object in memory and is carried out by any full-settings write, so
+# these keys appear without anyone having opened the Settings page. No mdns key,
+# because the server never synthesises that one.
 NO_MDNS_SETTINGS='{
   "ssl": false,
   "trustProxy": true,
+  "interfaces": {},
+  "vessel": {"uuid": "urn:mrn:signalk:uuid:test", "name": "Sähkövene"}
+}'
+
+# What the admin UI leaves behind. A per-interface boolean is only ever written
+# by PUT /skServer/settings, and that same request writes mdns from a checkbox
+# the page renders for every key it fetched -- so "mdns": true here records that
+# somebody saved the page, not that they chose the responder.
+SAVED_SETTINGS='{
+  "ssl": false,
+  "trustProxy": true,
+  "mdns": true,
   "interfaces": {"nmea-tcp": false},
   "vessel": {"uuid": "urn:mrn:signalk:uuid:test"}
 }'
@@ -1149,8 +1166,11 @@ chmod 644 "${SK}/settings.json"
 check "a device seeded before the flag gets it" "$(run_hook)" "0"
 check "  the responder is off" "$(mdns_setting "${SK}/settings.json")" "false"
 check "  the file keeps its mode" "$(mode "${SK}/settings.json")" "644"
-# The rewrite serialises every key in the file, so the one it was asked to add is
-# not the only thing that can change.
+[ -f "${SK}/${MDNS_MARKER}" ] &&
+    ok "  and the change is recorded" ||
+    bad "  and the change is recorded" "no ${MDNS_MARKER}"
+# The rewrite serialises every key, so the one it was asked to add is not the
+# only thing that can change.
 python3 - "${SK}/settings.json" <<'EOF' && ok "  and nothing else changes" ||
 import json, sys
 s = json.load(open(sys.argv[1]))
@@ -1158,31 +1178,144 @@ del s["mdns"]
 assert s == {
     "ssl": False,
     "trustProxy": True,
-    "interfaces": {"nmea-tcp": False},
-    "vessel": {"uuid": "urn:mrn:signalk:uuid:test"},
+    "interfaces": {},
+    # The round-trip now reaches most of the installed base, and a vessel name
+    # is where a boat keeps its non-ASCII. Escaped to \uXXXX is fine; mangled
+    # into two characters by a single-byte locale is not.
+    "vessel": {"uuid": "urn:mrn:signalk:uuid:test", "name": "S\u00e4hk\u00f6vene"},
 }, s
 EOF
     bad "  and nothing else changes" "$(cat "${SK}/settings.json")"
-# Root replaced a file the container owns and writes.
 chowned "${SK}/settings.json" &&
     ok "  and it is handed back to the container" ||
     bad "  and it is handed back to the container" "$(cat "${STUB_LOG}")"
+# The record is what makes the next boot cheap. Without this assertion the hook
+# could rewrite the whole document on every boot -- a root write into a
+# container-owned directory, and a rename under the running server, for nothing.
+AFTER="$(cat "${SK}/settings.json")"
+check "  the next boot changes nothing" "$(run_hook)" "0"
+check "  the document is byte-identical" "$(cat "${SK}/settings.json")" "${AFTER}"
 teardown
 
-# The key is written only where it is absent, and absence is the state that
-# produces the duplicate. The server never writes this key itself, so one that is
-# present was put there deliberately -- by default-data or by an operator who
-# wants the server's own responder -- and neither value is root's to overrule.
+# The case the key-absent predicate used to miss, and the reason the marker
+# exists. GET /skServer/settings fills options.mdns from `?? true` and the
+# Settings page saves the whole object back, so a device configured through that
+# page carries "mdns": true having decided nothing. It is the population this
+# repair is for, so it is repaired.
 setup
-printf '%s\n' '{"ssl":false,"mdns":true}' > "${SK}/settings.json"
-check "an operator who turned the responder on keeps it" "$(run_hook)" "0"
+printf '%s\n' "${SAVED_SETTINGS}" > "${SK}/settings.json"
+check "a device that saved the settings page is repaired" "$(run_hook)" "0"
+check "  the responder is off" "$(mdns_setting "${SK}/settings.json")" "false"
+check "  the interfaces it chose survive" \
+    "$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["interfaces"]))' "${SK}/settings.json")" \
+    '{"nmea-tcp": false}'
+teardown
+
+# Once, not as a standing policy. An operator who wants the server's own
+# responder turns it back on and keeps it, which is the whole reason the record
+# is a marker rather than a test on the value.
+setup
+printf '%s\n' "${NO_MDNS_SETTINGS}" > "${SK}/settings.json"
+run_hook > /dev/null
+python3 - "${SK}/settings.json" <<'EOF'
+import json, sys
+s = json.load(open(sys.argv[1]))
+s["mdns"] = True
+json.dump(s, open(sys.argv[1], "w"))
+EOF
+check "an operator who turns the responder back on keeps it" "$(run_hook)" "0"
 check "  the value is left alone" "$(mdns_setting "${SK}/settings.json")" "true"
 teardown
 
+# Deleting the marker is how an operator asks for the default again.
+setup
+printf '%s\n' "${SAVED_SETTINGS}" > "${SK}/settings.json"
+run_hook > /dev/null
+rm -f "${SK}/${MDNS_MARKER}"
+python3 - "${SK}/settings.json" <<'EOF'
+import json, sys
+s = json.load(open(sys.argv[1]))
+s["mdns"] = True
+json.dump(s, open(sys.argv[1], "w"))
+EOF
+check "deleting the record applies the default again" "$(run_hook)" "0"
+check "  the responder is off" "$(mdns_setting "${SK}/settings.json")" "false"
+teardown
+
+# A device already carrying the flag from default-data needs no rewrite, but the
+# record still goes down -- otherwise a later operator choice would be overruled
+# on the boot after it.
 setup
 printf '%s\n' '{"ssl":false,"mdns":false}' > "${SK}/settings.json"
-check "a device that already has the flag is untouched" "$(run_hook)" "0"
-check "  the value is left alone" "$(mdns_setting "${SK}/settings.json")" "false"
+BEFORE="$(cat "${SK}/settings.json")"
+check "a device that already has the flag is not rewritten" "$(run_hook)" "0"
+check "  the document is untouched" "$(cat "${SK}/settings.json")" "${BEFORE}"
+[ -f "${SK}/${MDNS_MARKER}" ] &&
+    ok "  and the record still goes down" ||
+    bad "  and the record still goes down" "no ${MDNS_MARKER}"
+teardown
+
+# The record is written after the change, never before: a marker that lands
+# first turns an interrupted boot into a device this never looks at again.
+setup
+printf '%s\n' "${NO_MDNS_SETTINGS}" > "${SK}/settings.json"
+cat > "${SANDBOX}/pylib/sitecustomize.py" <<'SHIM'
+import errno, os
+_real = os.open
+def _open(path, flags, mode=0o777, *, dir_fd=None):
+    if path == "settings.json.mdns-applied" and (flags & os.O_CREAT):
+        raise OSError(errno.ENOSPC, "No space left on device")
+    return _real(path, flags, mode, dir_fd=dir_fd)
+os.open = _open
+SHIM
+check "a failed record does not cost the change" "$(run_hook)" "0"
+check "  the responder is off" "$(mdns_setting "${SK}/settings.json")" "false"
+grep -q "will be applied again" "${SANDBOX}/out" &&
+    ok "  and the boot says the record is missing" ||
+    bad "  and the boot says the record is missing" "$(cat "${SANDBOX}/out")"
+rm -f "${SANDBOX}/pylib/sitecustomize.py"
+teardown
+
+# A staged write that keeps losing its name leaves the responder on. The other
+# two settings.json writers warn on exactly this, and a silent skip would leave a
+# duplicating device with nothing in the journal pointing at the cause.
+#
+# FileExistsError, not an errno: that is what a racer holding the temp name
+# produces, and it is the one create_guarded retries and then concedes, so this
+# reaches write_settings returning False rather than the call site's except.
+setup
+printf '%s\n' "${NO_MDNS_SETTINGS}" > "${SK}/settings.json"
+cat > "${SANDBOX}/pylib/sitecustomize.py" <<'SHIM'
+import os
+_real = os.open
+def _open(path, flags, mode=0o777, *, dir_fd=None):
+    if path == "settings.json.halos-tmp" and (flags & os.O_CREAT):
+        raise FileExistsError(path)
+    return _real(path, flags, mode, dir_fd=dir_fd)
+os.open = _open
+SHIM
+check "a failed rewrite does not block the start" "$(run_hook)" "0"
+check "  the key is still absent" "$(mdns_setting "${SK}/settings.json")" ""
+grep -q "leaving the mDNS responder as it is" "${SANDBOX}/out" &&
+    ok "  and says so" || bad "  and says so" "$(cat "${SANDBOX}/out")"
+[ ! -e "${SK}/${MDNS_MARKER}" ] &&
+    ok "  and records nothing, so the next boot retries" ||
+    bad "  and records nothing, so the next boot retries" "the marker was written"
+rm -f "${SANDBOX}/pylib/sitecustomize.py"
+teardown
+
+# Both repairs on one device, which is the common state in the population this
+# targets. The liner backup must be the connection as it was, not a document
+# this boot has already rewritten -- that is what the call ordering buys.
+setup
+printf '%s\n' "$(printf '%s' "${PRE_LINER_SETTINGS}" | python3 -c 'import json,sys; s=json.load(sys.stdin); del s["mdns"]; print(json.dumps(s))')" \
+    > "${SK}/settings.json"
+check "a device needing both repairs gets both" "$(run_hook)" "0"
+check "  the liner lands" "$(element_types "${SK}/settings.json")" \
+    "providers/gpsd providers/liner providers/nmea0183-signalk"
+check "  the responder is off" "$(mdns_setting "${SK}/settings.json")" "false"
+check "  and the kept connection carries no mDNS setting of ours" \
+    "$(mdns_setting "${SK}/settings.json.pre-liner")" ""
 teardown
 
 # A fresh install has no settings.json until the postinst seeds default-data, and
@@ -1192,6 +1325,9 @@ check "a fresh install writes no settings.json here" "$(run_hook)" "0"
 [ ! -e "${SK}/settings.json" ] &&
     ok "  the file is still absent" ||
     bad "  the file is still absent" "$(cat "${SK}/settings.json")"
+[ ! -e "${SK}/${MDNS_MARKER}" ] &&
+    ok "  and nothing is recorded" ||
+    bad "  and nothing is recorded" "a marker was written"
 teardown
 
 # A settings.json that will not parse is one Signal K cannot start from either.
@@ -1203,6 +1339,12 @@ check "  and is left as it was" "$(cat "${SK}/settings.json")" "not json at all"
 grep -q "gpsd connection not migrated" "${SANDBOX}/out" &&
     ok "  and the reason is logged" ||
     bad "  and the reason is logged" "$(cat "${SANDBOX}/out")"
+# Two callers raise on this input now. Without the second try/except the same
+# state is an ExecStartPre abort and no navigation server, so the message is
+# what says which path stayed a warning.
+grep -q "mDNS responder not disabled" "${SANDBOX}/out" &&
+    ok "  and the mDNS path warns too" ||
+    bad "  and the mDNS path warns too" "$(cat "${SANDBOX}/out")"
 teardown
 
 # The migration is a repair, not a precondition. A device that keeps the old

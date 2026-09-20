@@ -400,16 +400,37 @@ the TXT keys. The probe on
 [halos-org/halos#181](https://github.com/halos-org/halos/issues/181) that read
 as NO RESPONSE was not evidence that a second responder is inert.
 
-So `prestart.sh` writes the flag, and writes it only where the key is absent.
-Absence is what produces the duplicate, and it is a reliable signal: the server
-never writes this key itself. A device that has saved settings through the admin
-UI has gained `bleApi`, `courseApi`, `interfaces` and `resourcesApi` and still
-has no `mdns`. A key that is present was put there by `default-data` or by an
-operator, and neither value is root's to overrule -- an operator who wants the
-server's own responder keeps it.
+**The key being absent is not the predicate, and the first attempt at this used
+it.** `GET /skServer/settings` fills `options.mdns` from
+`app.config.settings.mdns ?? true`, the admin UI's Settings page renders a
+checkbox for every key it fetched, and Save PUTs the whole object back;
+`PUT /skServer/settings` then writes `mdns` whenever it is defined
+(`serverroutes.ts:860` and `:1157` in the pinned 2.32.0). So an operator who
+changed the log directory or an interface has `"mdns": true` on disk having
+decided nothing about mDNS -- and that is the configured, fielded population
+this repair exists for. A predicate on absence skips exactly them.
 
-Unlike the liner below, this one has no expiry. `default-data` seeds a new
-install, this covers every other device, and the two stay in step.
+The counter-evidence that looked convincing does not reach that path. A device
+carrying `bleApi`, `courseApi`, `interfaces` and `resourcesApi` with no `mdns`
+shows only that the server's own unattended writers ran: each clones
+`app.config.settings` and adds its own key, and `interfaces` defaults to `{}` in
+memory at load. None of them synthesises `mdns`. The device simply had never had
+a Settings-page save.
+
+**So the record is a marker, not the value.** `prestart.sh` writes
+`"mdns": false` once, whatever was there, and then writes
+`settings.json.mdns-applied`. While that file exists the value is never written
+again, so an operator who turns the responder back on keeps it. On disk "we have
+never written here" and "an operator chose `true`" are the same document; only a
+separate record tells them apart. Deleting the marker asks for the default
+again, and the file says so in its own text.
+
+It runs after the liner migration below, so `settings.json.pre-liner` stays the
+connection as it was rather than a document this boot has already rewritten.
+
+This one has an expiry for the same reason the liner does: the marker closes the
+population, so every device is past it after one boot. It carries no date yet
+because the flag has to reach the installed base first.
 
 **The missing liner is migrated; nothing else is.** `prestart.sh` splices a
 `providers/liner` into a connection whose `pipeElements` are `providers/gpsd`

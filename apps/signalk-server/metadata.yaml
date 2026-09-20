@@ -49,7 +49,7 @@ routing:
   # avahi-daemon both bind UDP 5353 under host networking and both answer, so
   # leaving it on gives every type a second, collision-renamed instance.
   # "mdns": false goes into default-data for a new install, and prestart.sh
-  # writes it on a device seeded before that key existed.
+  # applies it once on every other device, recording that it did so.
   #
   # Disabling the responder drops all six record sets it publishes, so this
   # list replaces them rather than adding one. The entries without a port take
