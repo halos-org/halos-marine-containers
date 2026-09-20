@@ -358,6 +358,35 @@ def configure_questdb(sk_fd):
         os.close(cfg_fd)
 
 
+def disable_builtin_mdns(sk_fd):
+    """Turn the server's own responder off on a device seeded before the flag.
+
+    avahi publishes this app's records from routing.mdns, and the server
+    advertises the same service types alongside them. Both it and avahi-daemon
+    bind UDP 5353 and both answer, so every service appears twice: once from
+    avahi and once collision-renamed, and only the server's copy carries the TXT
+    keys. `default-data` is copy-if-absent, so the "mdns": false it carries
+    reached new installs only.
+
+    Written only where the key is absent, which is exactly the state that
+    produces the duplicate. The server never writes this key itself -- a device
+    that has saved settings through the admin UI has gained bleApi, courseApi,
+    interfaces and resourcesApi and still has none -- so a key that is present
+    was put there deliberately, and neither value is root's to overrule.
+    """
+    read = read_settings(sk_fd)
+    if read is None:
+        return
+    settings, mode, _ = read
+
+    if "mdns" in settings:
+        return
+
+    settings["mdns"] = False
+    if write_settings(sk_fd, settings, mode):
+        print("Disabled Signal K's own mDNS responder; avahi publishes instead")
+
+
 def clear_gone_default_history_provider(sk_fd, installed):
     """Drop settings.json's default history provider when its app is gone.
 
@@ -612,6 +641,15 @@ if not existing:
     print("Security initialized with admin user.")
     print("NOTE: Local admin password stored in %s/admin-password" % DATA_ROOT)
     print("This is a fallback for emergency access. Use OIDC for regular login.")
+
+# Ahead of the liner migration, so the copy that one keeps is the document as
+# this boot will leave it. Its own reasoning is the same: a device left
+# advertising twice is discoverable twice, while an exception here is an
+# ExecStartPre abort and no navigation server at all.
+try:
+    disable_builtin_mdns(sk_fd)
+except Exception as exc:
+    warn("Signal K's own mDNS responder not disabled: %s" % exc)
 
 # A repair, not a precondition: a device left on the old connection shows no
 # position, which is where it already was, while an exception on the way there is
