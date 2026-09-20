@@ -87,10 +87,11 @@ def test_gpsd_connection_is_enabled(settings):
 def test_own_mdns_responder_is_disabled(settings):
     """avahi publishes for Signal K, so the server must not also try.
 
-    The container is host-networked: avahi-daemon owns UDP 5353, and the
-    server's responder binds the socket without ever answering. The records
-    come from `routing.mdns` in metadata.yaml instead, so this flag and that
-    list are two halves of one decision.
+    The container is host-networked, and both responders bind UDP 5353 and
+    answer, so a server left publishing gives every service type a second,
+    collision-renamed instance. The records come from `routing.mdns` in
+    metadata.yaml instead, so this flag and that list are two halves of one
+    decision. prestart.sh writes the flag on a device this file never reached.
     """
     assert settings.get("mdns") is False, (
         "Signal K's own responder must be off; avahi publishes the records"
