@@ -389,22 +389,26 @@ first seeded with, while `apt` reports success and the app version bumps. This i
 the same reach constraint as the baked plugin set below, and every change here
 needs the same explicit decision: migrate, or accept and say so.
 
-**`"mdns": false` is accepted as unreachable, not migrated.** avahi publishes
-Signal K's DNS-SD records now (`routing.mdns` in `metadata.yaml`), and the flag
-stops the server from also trying. On a fielded device the flag never lands, so
-the server's responder stays enabled -- and that is tolerable, because the
-responder is what does not work: the probe in
-[halos-org/halos#181](https://github.com/halos-org/halos/issues/181) shows every
-Signal K service type returning NO RESPONSE while avahi answers for the same
-host. A device that keeps the responder enabled has a process holding UDP 5353
-alongside avahi and answering nothing, which is the state it was already in.
-avahi's records are unaffected either way, which the hand-applied workaround on
-that issue demonstrated before any of this shipped.
+**Signal K advertises its own DNS-SD records; do not add avahi records for it.**
+`prestart.sh` writes `EXTERNALSSL=1` into the runtime env, `config.ts` reads it,
+and `rest.js` and `ws.js` then choose their advertised names from
+`app.config.settings.ssl || app.config.isExternalSsl()`. So the server already
+publishes `_signalk-https`, `_signalk-wss`, `_signalk-tcp`, `_nmea-0183` and
+`_https`, all at the external port it takes from the port registry, and with the
+`roles` and `self` TXT keys that avahi cannot supply.
 
-So the flag is hygiene for fresh images, not the mechanism. Do not read the
-`metadata.yaml` comment as a claim about the installed base. If the responder
-ever does start answering -- an upstream change, a move off host networking --
-this becomes two publishers for overlapping types and needs a real migration.
+This was added and then removed again. `routing.mdns` in `metadata.yaml`
+published the same types through avahi, and the two responders collided: both
+bind UDP 5353 and both answer, so every type resolved twice, once
+collision-renamed. The `NO RESPONSE` probe on
+[halos-org/halos#181](https://github.com/halos-org/halos/issues/181) that
+motivated it queried `_signalk-ws._tcp` and `_signalk-http._tcp` -- the plaintext
+names, which a device running with `EXTERNALSSL=1` never uses. Before reading
+that issue as evidence of silence, probe the TLS names.
+
+`routing.mdns` remains the right mechanism for an app that has no responder of
+its own, because Traefik assigns the external port at runtime and a static avahi
+file cannot express it. Signal K is not that app.
 
 **The missing liner is migrated; nothing else is.** `prestart.sh` splices a
 `providers/liner` into a connection whose `pipeElements` are `providers/gpsd`

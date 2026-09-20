@@ -1,6 +1,5 @@
 {
   "ssl": false,
-  "mdns": false,
   "trustProxy": true,
   "pipedProviders": [
     {
