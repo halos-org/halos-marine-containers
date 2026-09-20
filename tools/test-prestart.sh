@@ -953,7 +953,9 @@ teardown
 # The adjacency is the whole predicate, and that is what makes it also the
 # unmodified check. gpsd piped into anything else is someone's own pipeline.
 setup
-printf '%s\n' '{"pipedProviders":[{"id":"gpsd","pipeElements":[
+# Carries mdns so the responder repair has nothing to do here: this scenario is
+# about the pipeline, and a second writer touching the file would mask it.
+printf '%s\n' '{"mdns":false,"pipedProviders":[{"id":"gpsd","pipeElements":[
   {"type":"providers/gpsd"},{"type":"providers/log"},
   {"type":"providers/nmea0183-signalk"}]}]}' > "${SK}/settings.json"
 BEFORE="$(cat "${SK}/settings.json")"
@@ -1120,6 +1122,76 @@ check "  and the next boot adds no second liner" "$(run_hook)" "0"
 check "  the pipeline still has exactly one" \
     "$(element_types "${SK}/settings.json")" \
     "providers/gpsd providers/liner providers/nmea0183-signalk"
+teardown
+
+# --- Signal K's own mDNS responder -------------------------------------------
+#
+# avahi publishes this app's records from routing.mdns. The server's responder
+# advertises the same types alongside them unless it is turned off, and
+# default-data is copy-if-absent, so the flag reached new installs only.
+
+# What a device seeded before the flag carries: every key the server has written
+# for itself, and no mdns.
+NO_MDNS_SETTINGS='{
+  "ssl": false,
+  "trustProxy": true,
+  "interfaces": {"nmea-tcp": false},
+  "vessel": {"uuid": "urn:mrn:signalk:uuid:test"}
+}'
+
+mdns_setting() {  # echoes true, false, or the empty string when the key is absent
+    python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print("" if "mdns" not in s else json.dumps(s["mdns"]))' "$1"
+}
+
+setup
+printf '%s\n' "${NO_MDNS_SETTINGS}" > "${SK}/settings.json"
+chmod 644 "${SK}/settings.json"
+check "a device seeded before the flag gets it" "$(run_hook)" "0"
+check "  the responder is off" "$(mdns_setting "${SK}/settings.json")" "false"
+check "  the file keeps its mode" "$(mode "${SK}/settings.json")" "644"
+# The rewrite serialises every key in the file, so the one it was asked to add is
+# not the only thing that can change.
+python3 - "${SK}/settings.json" <<'EOF' && ok "  and nothing else changes" ||
+import json, sys
+s = json.load(open(sys.argv[1]))
+del s["mdns"]
+assert s == {
+    "ssl": False,
+    "trustProxy": True,
+    "interfaces": {"nmea-tcp": False},
+    "vessel": {"uuid": "urn:mrn:signalk:uuid:test"},
+}, s
+EOF
+    bad "  and nothing else changes" "$(cat "${SK}/settings.json")"
+# Root replaced a file the container owns and writes.
+chowned "${SK}/settings.json" &&
+    ok "  and it is handed back to the container" ||
+    bad "  and it is handed back to the container" "$(cat "${STUB_LOG}")"
+teardown
+
+# The key is written only where it is absent, and absence is the state that
+# produces the duplicate. The server never writes this key itself, so one that is
+# present was put there deliberately -- by default-data or by an operator who
+# wants the server's own responder -- and neither value is root's to overrule.
+setup
+printf '%s\n' '{"ssl":false,"mdns":true}' > "${SK}/settings.json"
+check "an operator who turned the responder on keeps it" "$(run_hook)" "0"
+check "  the value is left alone" "$(mdns_setting "${SK}/settings.json")" "true"
+teardown
+
+setup
+printf '%s\n' '{"ssl":false,"mdns":false}' > "${SK}/settings.json"
+check "a device that already has the flag is untouched" "$(run_hook)" "0"
+check "  the value is left alone" "$(mdns_setting "${SK}/settings.json")" "false"
+teardown
+
+# A fresh install has no settings.json until the postinst seeds default-data, and
+# that copy carries the flag already.
+setup
+check "a fresh install writes no settings.json here" "$(run_hook)" "0"
+[ ! -e "${SK}/settings.json" ] &&
+    ok "  the file is still absent" ||
+    bad "  the file is still absent" "$(cat "${SK}/settings.json")"
 teardown
 
 # A settings.json that will not parse is one Signal K cannot start from either.
