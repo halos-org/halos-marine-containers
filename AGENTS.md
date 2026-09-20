@@ -389,22 +389,27 @@ first seeded with, while `apt` reports success and the app version bumps. This i
 the same reach constraint as the baked plugin set below, and every change here
 needs the same explicit decision: migrate, or accept and say so.
 
-**`"mdns": false` is accepted as unreachable, not migrated.** avahi publishes
-Signal K's DNS-SD records now (`routing.mdns` in `metadata.yaml`), and the flag
-stops the server from also trying. On a fielded device the flag never lands, so
-the server's responder stays enabled -- and that is tolerable, because the
-responder is what does not work: the probe in
-[halos-org/halos#181](https://github.com/halos-org/halos/issues/181) shows every
-Signal K service type returning NO RESPONSE while avahi answers for the same
-host. A device that keeps the responder enabled has a process holding UDP 5353
-alongside avahi and answering nothing, which is the state it was already in.
-avahi's records are unaffected either way, which the hand-applied workaround on
-that issue demonstrated before any of this shipped.
+**`"mdns": false` is migrated.** avahi publishes Signal K's DNS-SD records now
+(`routing.mdns` in `metadata.yaml`), and the flag stops the server from
+publishing the same types alongside them. This was first written the other way,
+on the reading that the responder could not work under host networking anyway.
+It can. Both it and avahi-daemon bind UDP 5353 and both answer -- `ss -ulnp`
+shows the two processes on the port, and browsing returns every service twice,
+once from avahi and once collision-renamed, with only the server's copy carrying
+the TXT keys. The probe on
+[halos-org/halos#181](https://github.com/halos-org/halos/issues/181) that read
+as NO RESPONSE was not evidence that a second responder is inert.
 
-So the flag is hygiene for fresh images, not the mechanism. Do not read the
-`metadata.yaml` comment as a claim about the installed base. If the responder
-ever does start answering -- an upstream change, a move off host networking --
-this becomes two publishers for overlapping types and needs a real migration.
+So `prestart.sh` writes the flag, and writes it only where the key is absent.
+Absence is what produces the duplicate, and it is a reliable signal: the server
+never writes this key itself. A device that has saved settings through the admin
+UI has gained `bleApi`, `courseApi`, `interfaces` and `resourcesApi` and still
+has no `mdns`. A key that is present was put there by `default-data` or by an
+operator, and neither value is root's to overrule -- an operator who wants the
+server's own responder keeps it.
+
+Unlike the liner below, this one has no expiry. `default-data` seeds a new
+install, this covers every other device, and the two stay in step.
 
 **The missing liner is migrated; nothing else is.** `prestart.sh` splices a
 `providers/liner` into a connection whose `pipeElements` are `providers/gpsd`
