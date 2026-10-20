@@ -64,10 +64,9 @@ if command -v uvx >/dev/null 2>&1; then
         fi
     done
 else
-    echo ""
-    echo "WARNING: uvx not installed"
-    echo "Install with: pip install uv"
-    echo "Skipping container app package generation"
+    echo "ERROR: uvx not found; it is needed to build the app packages" >&2
+    echo "Install uv: https://docs.astral.sh/uv/getting-started/installation/" >&2
+    exit 1
 fi
 
 echo ""
