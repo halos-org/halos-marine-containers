@@ -236,12 +236,8 @@ function build-debtools {
   #@ Category: Build
   echo "Building Docker image for package building..."
 
-  # Create docker directory if it doesn't exist
-  mkdir -p docker
-
-  # Create Dockerfile if it doesn't exist
-  if [ ! -f docker/Dockerfile.debtools ]; then
-    cat > docker/Dockerfile.debtools << 'DOCKERFILE'
+  # The Dockerfile has no COPY or ADD, so it goes in on stdin with no context.
+  docker build -t "$DOCKER_IMAGE" - << 'DOCKERFILE'
 FROM debian:trixie
 
 RUN apt-get update && apt-get install -y \
@@ -257,13 +253,12 @@ RUN apt-get update && apt-get install -y \
     pipx \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pipx install uv && pipx ensurepath
+RUN pipx install uv
+# ensurepath only edits shell rc files, which `bash -c` never reads.
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /workspace
 DOCKERFILE
-  fi
-
-  docker build -t "$DOCKER_IMAGE" -f docker/Dockerfile.debtools docker/
 }
 
 function build {
@@ -271,11 +266,9 @@ function build {
   #@ Category: Build
   echo "Building all container packages..."
 
-  # Ensure Docker image exists
-  if ! docker image inspect "$DOCKER_IMAGE" &>/dev/null; then
-    echo "Docker image not found. Building..."
-    build-debtools
-  fi
+  # Always rebuild: the layer cache makes it quick, and an image built from an
+  # older Dockerfile would otherwise be reused.
+  build-debtools
 
   # Run build in Docker container
   # CONTAINER_TOOLS_REF can specify a git ref for container-packaging-tools
