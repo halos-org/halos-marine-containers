@@ -79,6 +79,26 @@ Individual apps in `apps/` have their own versions in `metadata.yaml`. These are
 - **App-level (per PR)**: PRs that change files in `apps/<app>/` must bump the `version` field in `apps/<app>/metadata.yaml`, or CI will fail.
 - **Repo-level (per release cycle)**: `VERSION` bumps are per release cycle, not per PR — CI fails only on the PR that opens a new cycle. This repo is a clean example: `0.3.2` shipped 24 `+N` prereleases before the current cycle opened at `0.4.0`. See the workspace `AGENTS.md` version-bump policy for the decision procedure — including the highest-level-wins rule: if a change at a higher semver level than the cycle-opening bump lands mid-cycle, re-bump `VERSION` up to that level once.
 
+## Why the history backend is moving off InfluxDB
+
+`apps/influxdb` ships InfluxDB OSS 2.x with the `signalk-to-influxdb2` provider.
+Both work, but InfluxDB 3 is not an upgrade path, so
+`signalk-questdb-history-provider` and `@halos-org/signalk-duckdb-history-provider`
+are replacing it:
+
+- InfluxDB 3 Core, the open-source release, limits a query to about 72 hours of
+  data by default, and InfluxData advises against raising the limit. A season of
+  history is out of reach.
+- The free InfluxDB 3 Enterprise tier is licensed for non-commercial use only.
+
+In September 2026 benchmarks on a test device, InfluxDB 2.9.1 was still the
+fastest of the three backends on all seven query shapes.
+
+Sources: [InfluxDB 3 Core config options](https://docs.influxdata.com/influxdb3/core/reference/config-options/#query-file-limit),
+[the 72-hour announcement](https://www.influxdata.com/blog/influxdb3-open-source-public-alpha-jan-27/).
+
+Fix defects in the shipped 2.x app, but do not add InfluxDB capacity or features.
+
 ## What This Repository Contains
 
 **Two things in one repository**:
