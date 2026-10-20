@@ -39,11 +39,10 @@ services:
       - /dev:/dev
       - /run:/run
     group_add:
-      # signalk-halpi reads /run/halpid/halpid.sock. halpid <5.1.0 owned it
-      # root:halpid (GID 960); 5.1.0+ owns it root:adm (GID 4). Grant both so
-      # the socket is reachable regardless of the installed halpid version.
-      - "960"  # halpid (legacy, halpid <5.1.0)
-      - "4"    # adm (halpid 5.1.0+)
+      # signalk-halpi reads /run/halpid/halpid.sock, which halpid >= 5.0.2 owns
+      # root:halpid with GID 960 pinned by its postinst. signalk-halpi depends
+      # on halpid >= 5.0.2.
+      - "960"  # halpid
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3000/signalk || exit 1"]
       interval: 30s
