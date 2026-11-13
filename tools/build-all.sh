@@ -40,7 +40,7 @@ if command -v uvx >/dev/null 2>&1; then
     # drops that field and still builds, so bump this pin in the same PR that
     # adds the field, and bump the app's own version so the .deb ships.
     TOOLS_PATH="${CONTAINER_TOOLS_PATH:-}"
-    TOOLS_REF="${CONTAINER_TOOLS_REF:-v0.13.0+5}"
+    TOOLS_REF="${CONTAINER_TOOLS_REF:-v0.13.1+1}"
     if [ -n "$TOOLS_PATH" ]; then
         TOOLS_SOURCE="$TOOLS_PATH"
         echo "Using local container-packaging-tools from: $TOOLS_PATH"
