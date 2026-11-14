@@ -22,3 +22,45 @@ jobs:
       apt-component: main
     secrets:
       APT_REPO_PAT: ${{ secrets.APT_REPO_PAT }}
+
+  # An image update merged by check-updates.yml goes to stable without a person
+  # publishing the draft. Every other merge keeps the manual publish.
+  publish-image-update:
+    needs: build-release
+    if: contains(github.event.head_commit.message, '/chore/update-container-images')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the draft built from this commit
+        env:
+          # Published with github.token, the release would not trigger
+          # release.yml and nothing would reach stable apt.
+          GH_TOKEN: ${{ secrets.BUMP_PAT }}
+          GH_REPO: ${{ github.repository }}
+          SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          subject=${SUBJECT%%$'\n'*}
+          if ! [[ "$subject" =~ ^Merge\ pull\ request\ \#[0-9]+\ from\ ${GITHUB_REPOSITORY%%/*}/chore/update-container-images$ ]]; then
+            echo "Not an image update merge; the draft stays for a manual publish."
+            exit 0
+          fi
+
+          # build-release pushes v<version>+<N>_pre at the built commit; the
+          # draft is the same name without _pre. A rerun on the same commit
+          # adds another _pre tag, and only the newest has a live draft.
+          pre=$(gh api --paginate "repos/${GH_REPO}/git/matching-refs/tags/v" \
+            --jq ".[] | select(.object.sha == \"${GITHUB_SHA}\") | .ref | ltrimstr(\"refs/tags/\") | select(endswith(\"_pre\"))" \
+            | sort -V | tail -n1)
+          [ -n "$pre" ] || {
+            echo "::error::no _pre tag points at ${GITHUB_SHA}; build-release made no release to publish." >&2
+            exit 1
+          }
+          tag=${pre%_pre}
+          [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true ] || {
+            echo "::error::${tag} is not a draft release." >&2
+            exit 1
+          }
+          # The draft targets main, so without --target the tag would land on
+          # whatever main's tip is at this moment, not on the commit built.
+          gh release edit "$tag" --draft=false --latest --target "$GITHUB_SHA"
+          echo "Published ${tag}"

@@ -14,6 +14,12 @@ jobs:
     uses: halos-org/shared-workflows/.github/workflows/check-image-updates.yml@main
     with:
       compose-pattern: 'apps/*/docker-compose.yml'
+      auto-merge: true
+    secrets:
+      # A fine-grained token for this repo with Contents and Pull requests
+      # write. Pushed and merged with github.token, the PR would run no checks
+      # and its merge would not trigger main.yml.
+      token: ${{ secrets.BUMP_PAT }}
     permissions:
       contents: write
       pull-requests: write
