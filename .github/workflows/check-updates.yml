@@ -9,11 +9,35 @@ concurrency:
   group: ${{ github.repository }}-check-image-updates
   cancel-in-progress: true
 
+# Both jobs use BUMP_PAT, a fine-grained token for this repo with Contents and
+# Pull requests write. Pushed and merged with github.token, the PRs would run
+# no checks and a merge would not trigger main.yml.
 jobs:
-  check-updates:
+  # Minor and patch updates merge themselves once the required checks pass,
+  # and main.yml publishes the result to stable.
+  minor:
     uses: halos-org/shared-workflows/.github/workflows/check-image-updates.yml@main
     with:
       compose-pattern: 'apps/*/docker-compose.yml'
+      update-scope: minor
+      auto-merge: true
+    secrets:
+      token: ${{ secrets.BUMP_PAT }}
+    permissions:
+      contents: write
+      pull-requests: write
+
+  # A major update can migrate an app's data one way, and no required check
+  # starts a container, so a person merges and publishes it.
+  major:
+    uses: halos-org/shared-workflows/.github/workflows/check-image-updates.yml@main
+    with:
+      compose-pattern: 'apps/*/docker-compose.yml'
+      update-scope: major
+      branch-name: chore/update-container-images-major
+      pr-title: 'chore: update container images to new major versions'
+    secrets:
+      token: ${{ secrets.BUMP_PAT }}
     permissions:
       contents: write
       pull-requests: write
