@@ -111,11 +111,12 @@ class TestAppVersionParsing:
 
             # Expected formats:
             # - Semver: X.Y.Z, X.Y.Z-N, or X.Y.Z-prerelease-N (e.g., 2.17.2-1, 2.19.0-beta.4-1)
-            # - Date-based: YYYYMMDD-N (e.g., 20240520-1)
+            # - Date-based: YYYYMMDD-N (e.g., 20240520-1), or
+            #   YYYYMMDD+reallyYYYYMMDD-N when returning to an older upstream
             # - Pre-release with git SHA: X.Y.Z~N.sha-N (e.g., 2.19.2~1.90d6c6c-1)
             # Pre-release identifiers like alpha.N, beta.N, rc.N are allowed
             semver_pattern = r"^\d+\.\d+\.\d+(-[a-zA-Z]+\.\d+)?(-\d+)?$"
-            date_pattern = r"^\d{8}-\d+$"
+            date_pattern = r"^\d{8}(\+really\d{8})?-\d+$"
             prerelease_pattern = r"^\d+\.\d+\.\d+~\d+\.[a-f0-9]+-\d+$"
 
             is_valid = (
